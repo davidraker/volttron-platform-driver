@@ -345,7 +345,6 @@ class ReservationManager(object):
         return self._device_states.get(topic)
 
     def update(self, now, device_only=None, publish=True):
-        _log.debug("update")
         # Sanity check now.
         # This is specifically for when this is running in a VM that gets
         # suspended and then resumed.
@@ -356,9 +355,7 @@ class ReservationManager(object):
         test_now = get_aware_utc_now()
         if test_now - now > timedelta(minutes=3):
             now = test_now
-        _log.debug("In update: now is {}".format(now))
         self._device_states = self.get_reservation_state(now)
-        _log.debug("device states is {}".format(self._device_states))
 
         # device_only and publish tells us if we were called by a reservation change.
         # If we are being called as part of a regularly scheduled publish
@@ -367,10 +364,8 @@ class ReservationManager(object):
             self._update_event_time = None
 
         next_reservation_event_time = self.get_next_event_time(now)
-        _log.debug("next_reservation_event_time is {}".format(next_reservation_event_time))
         new_update_event_time = self._get_adjusted_next_event_time(now, next_reservation_event_time,
                                                                    self._update_event_time)
-        _log.debug("new_update_event_time is {}".format(new_update_event_time))
 
         if publish:
             device_states = []
@@ -404,7 +399,6 @@ class ReservationManager(object):
     #     self.update(now)
 
     def _get_adjusted_next_event_time(self, now, next_event_time, previously_reserved_time):
-        _log.debug("_get_adjusted_next_event_time")
         latest_next = now + timedelta(seconds=self.agent.config.reservation_publish_interval)
         # Round to the next second to fix timer goofiness in agent timers.
         # TODO: Improved Reservation Manager should no longer require this.
