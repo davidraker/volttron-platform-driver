@@ -10,29 +10,29 @@
 #    # optional docs directory. defaults to "docs/source" under root
 #    docs_dir: docs/source
 
-volttron-actuator:
-    version: docs
-    repo: https://github.com/davidraker/volttron-actuator
+#volttron-actuator:
+#    version: docs
+#    repo: https://github.com/davidraker/volttron-actuator
 
 volttron-lib-fake-driver:
-    version: docs
+    version: 11rc1
     repo: https://github.com/davidraker/volttron-lib-fake-driver
 
 volttron-lib-bacnet-driver:
-    version: docs
+    version: 11rc1
     repo: https://github.com/davidraker/volttron-lib-bacnet-driver
 
 volttron-bacnet-proxy:
-    version: docs
+    version: 11rc1
     repo: https://github.com/davidraker/volttron-bacnet-proxy
 
 volttron-lib-modbus-driver:
-    version: docs
+    version: 11rc1
     repo: https://github.com/davidraker/volttron-lib-modbus-driver
 
-volttron-lib-modbustk-driver:
-    version: docs
-    repo: https://github.com/davidraker/volttron-lib-modbustk-driver
+#volttron-lib-modbustk-driver:
+#    version: develop
+#    repo: https://github.com/davidraker/volttron-lib-modbustk-driver
 
 volttron-lib-dnp3-driver:
     version: comply-rtd
