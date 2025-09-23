@@ -38,7 +38,7 @@ from typing import Any, Iterable, Sequence, Set
 
 # from volttron.client.commands.install_agents import InstallRuntimeError # TODO Used in commented add_interface.
 from volttron.client.known_identities import PLATFORM_DRIVER
-# from volttron.client.logs import setup_logging
+from volttron.client.logs import setup_logging
 from volttron.client.messaging.health import STATUS_BAD
 from volttron.client.messaging.utils import normtopic
 from volttron.client.vip.agent import Agent
@@ -59,8 +59,9 @@ from platform_driver.poll_scheduler import PollScheduler
 from platform_driver.reservations import ReservationManager
 from platform_driver.scalability_testing import ScalabilityTester
 
-#setup_logging()
-logging.basicConfig(level=logging.DEBUG, filename=f'{cc.get_volttron_home()}/driver.log')
+# setup_logging()
+from volttron.utils.context import ClientContext as Cc
+logging.basicConfig(filename=f"{Cc.get_volttron_home()}/driver.log", level=logging.DEBUG)
 _log = logging.getLogger(__name__)
 __version__ = '4.0'
 
