@@ -139,7 +139,7 @@ class EquipmentNode(TopicNode):
 
 class DeviceNode(EquipmentNode):
     def __init__(self, config, driver, *args, **kwargs):
-        config = config.copy()
+        config = config.model_copy()
         super(DeviceNode, self).__init__(config, *args, **kwargs)
         self._remote: DriverAgent = driver
         self.data['registry_name'] = None
@@ -196,7 +196,7 @@ class PointNode(EquipmentNode):
 
     @property
     def stale(self) -> bool:
-        if self.active is False:
+        if not self.active:
             return False
         elif self.data['config'].stale_timeout is None:
             return False

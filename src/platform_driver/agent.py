@@ -103,7 +103,7 @@ class PlatformDriverAgent(Agent):
             return PlatformDriverConfig()
 
     def configure_main(self, _, action: str, contents: dict):
-        old_config = self.config.copy()
+        old_config = self.config.model_copy(deep=True)
         new_config = self._load_agent_config(contents)
         if action == "NEW":
             self.config = new_config
