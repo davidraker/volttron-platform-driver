@@ -28,7 +28,7 @@ from collections import defaultdict
 from datetime import timedelta
 from enum import Enum
 from pydantic import BaseModel
-from typing import Union, Iterable
+from typing import Any, Union, Iterable
 from treelib import Tree, Node
 from treelib.exceptions import DuplicatedNodeIdError, NodeIDAbsentError
 
@@ -44,7 +44,7 @@ _log = logging.getLogger(__name__)
 class TopicNode(Node):
     def __init__(self, tag=None, identifier=None, expanded=True, data=None, segment_type='TOPIC_SEGMENT', topic=''):
         super(TopicNode, self).__init__(tag, identifier, expanded, data)
-        self.data = data if data else {}
+        self.data: dict[str, Any] = data if data else {}
         self.data['segment_type'] = segment_type
         self.data['topic'] = topic
 

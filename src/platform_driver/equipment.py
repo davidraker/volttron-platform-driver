@@ -27,7 +27,7 @@ import logging
 
 from datetime import datetime
 from treelib.exceptions import DuplicatedNodeIdError
-from typing import Iterable, Optional, Union
+from typing import Any, cast, Iterable, Optional, TYPE_CHECKING, Union
 from weakref import WeakValueDictionary
 
 from volttron.client.known_identities import CONFIGURATION_STORE
@@ -44,9 +44,9 @@ _log = logging.getLogger(__name__)
 
 
 class EquipmentNode(TopicNode):
-    def __init__(self, config=None, *args, **kwargs):
+    def __init__(self, config: EquipmentConfig = None, *args, **kwargs):
         super(EquipmentNode, self).__init__(*args, **kwargs)
-        self.data['config'] = config if config is not None else EquipmentConfig()
+        self.data['config']: EquipmentConfig = config if config is not None else EquipmentConfig()
         self.data['remote'] = None
         self.data['segment_type'] = 'TOPIC_SEGMENT'
 
@@ -165,7 +165,7 @@ class DeviceNode(EquipmentNode):
 class PointNode(EquipmentNode):
     def __init__(self, config, *args, **kwargs):
         super(PointNode, self).__init__(config, *args, **kwargs)
-        self.data['last_value']: any = None
+        self.data['last_value']: Any = None
         self.data['last_updated']: Optional[datetime] = None
         self.data['segment_type'] = 'POINT'
         # self._stale = True
@@ -182,11 +182,11 @@ class PointNode(EquipmentNode):
             raise ValueError(f'Data source must be a DataSource or a string in: {list(DataSource.__members__.keys())}.')
 
     @property
-    def last_value(self) -> any:
+    def last_value(self) -> Any:
         return self.data['last_value']
 
     @last_value.setter
-    def last_value(self, value: any):
+    def last_value(self, value: Any):
         self.data['last_value'] = value
         self.data['last_updated'] = get_aware_utc_now()
 
@@ -227,6 +227,10 @@ class EquipmentTree(TopicTree):
         root_config.publish_multi_breadth = agent.config.publish_multi_breadth
         root_config.publish_all_depth = agent.config.publish_all_depth
         root_config.publish_all_breadth = agent.config.publish_all_breadth
+
+    if TYPE_CHECKING:
+        def get_node(self, nid) -> EquipmentNode | DeviceNode | PointNode:
+            ...
 
     def set_registry_name(self, nid):
         # TODO: This method should be unnecessary, if we can just get the registry_name in the config_store push.
@@ -281,7 +285,7 @@ class EquipmentTree(TopicTree):
     def update_equipment(self, nid: str, dev_config: DeviceConfig | None, remote: DriverAgent | None,
                          registry_config: list[PointConfig]) -> bool:
         changes = False
-        dev_node = self.get_node(nid)
+        dev_node: DeviceNode = self.get_node(nid)
         if dev_node and dev_config is not None:
             if dev_config != dev_node.config:
                 changes = True
@@ -388,7 +392,7 @@ class EquipmentTree(TopicTree):
             raise OverrideError(f"Cannot set point on {node.identifier} since global override is set")
         
     def get_device_node(self, nid: str) -> DeviceNode:
-        return self.get_node(next(self.rsearch(nid, lambda n: n.is_device)))
+        return cast(DeviceNode, self.get_node(next(self.rsearch(nid, lambda n: n.is_device))))
 
     def get_remote(self, nid: str) -> DriverAgent:
         return self.get_device_node(nid).remote

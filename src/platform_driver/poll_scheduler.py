@@ -31,6 +31,7 @@ from collections import defaultdict
 from datetime import datetime, timedelta
 from functools import reduce
 from math import floor, gcd, lcm
+from typing import Any
 from weakref import WeakKeyDictionary, WeakValueDictionary
 
 # noinspection PyProtectedMember
@@ -48,12 +49,12 @@ _log = logging.getLogger(__name__)
 class PollSet:
     def __init__(self, data_model: EquipmentTree, remote: DriverAgent,
                  points: WeakValueDictionary[str, PointNode] = None,
-                 single_depth: set[str] = None, single_breadth: set[(str, str)] = None,
+                 single_depth: set[str] = None, single_breadth: set[tuple[str, str]] = None,
                  multi_depth: dict[str, set[str]] = None, multi_breadth: dict[str, set[str]] = None):
         self.data_model: EquipmentTree = data_model
         self.points: WeakValueDictionary[str, PointNode] = points if points else WeakValueDictionary()
         self.single_depth: set[str] = single_depth if single_depth else set()
-        self.single_breadth: set[(str, str)] = single_breadth if single_breadth else set()
+        self.single_breadth: set[tuple[str, str]] = single_breadth if single_breadth else set()
         self.multi_depth: dict[str, set[str]] = multi_depth if multi_depth else defaultdict(set)
         self.multi_breadth: dict[str, set[str]] = multi_breadth if multi_breadth else defaultdict(set)
         self.remote = remote
@@ -118,7 +119,7 @@ class PollSet:
         return bool(self.points)
 
 
-class PollScheduler:
+class PollScheduler(metaclass=abc.ABCMeta):
     poll_sets: dict[str, WeakKeyDictionary[DriverAgent, dict[float, PollSet]]] = defaultdict(WeakKeyDictionary)
 
     def __init__(self, data_model: EquipmentTree, group: str, group_config: GroupConfig, **kwargs):
@@ -127,7 +128,7 @@ class PollScheduler:
         self.group_config: GroupConfig = group_config
 
         self.start_all_datetime: datetime = get_aware_utc_now()
-        self.pollers: dict[any, ScheduledEvent] = {}
+        self.pollers: dict[Any, ScheduledEvent] = {}
 
     def schedule(self):
         self._prepare_to_schedule()
@@ -137,7 +138,7 @@ class PollScheduler:
     def setup(cls, data_model: EquipmentTree, group_configs: dict[str, GroupConfig]):
         """
         Sort points from each of the remote's EquipmentNodes by interval:
-            Build cls.poll_sets  as: {group: {remote: {interval: WeakSet(points)}}}}
+            Build cls.poll_sets  as: {group: {remote: {interval: WeakSet(points)}}}
         """
         cls._build_poll_sets(data_model)
         poll_schedulers = cls.create_poll_schedulers(data_model, group_configs)

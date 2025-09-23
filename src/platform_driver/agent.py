@@ -33,7 +33,7 @@ from collections import defaultdict
 from datetime import datetime
 from pkgutil import iter_modules
 from pydantic import ValidationError
-from typing import Iterable, Sequence, Set
+from typing import Any, Iterable, Sequence, Set
 
 
 # from volttron.client.commands.install_agents import InstallRuntimeError # TODO Used in commented add_interface.
@@ -47,7 +47,7 @@ from volttron.driver.base.driver import BaseInterface, DriverAgent
 from volttron.driver.base.driver_locks import configure_publish_lock, setup_socket_lock
 from volttron.driver.base.config import DeviceConfig, EquipmentConfig, PointConfig, RemoteConfig
 from volttron.driver.base.utils import publication_headers, publish_wrapper
-from volttron.utils import ClientContext as cc, format_timestamp, get_aware_utc_now, load_config, vip_main
+from volttron.utils import format_timestamp, get_aware_utc_now, load_config, vip_main
 from volttron.utils.jsonrpc import RemoteError
 from volttron.utils.scheduling import periodic
 
@@ -93,7 +93,7 @@ class PlatformDriverAgent(Agent):
     # Configuration & Startup
     #########################
 
-    def _load_agent_config(self, config: dict):
+    def _load_agent_config(self, config: dict) -> PlatformDriverConfig:
         try:
             return PlatformDriverConfig(**config)
         except ValidationError as e:
@@ -192,7 +192,7 @@ class PlatformDriverAgent(Agent):
         # Set up All Publishes:
         self._start_all_publishes()
 
-    def _separate_equipment_configs(self, config_dict) -> (RemoteConfig, DeviceConfig | None, set[PointConfig]):
+    def _separate_equipment_configs(self, config_dict) -> tuple[RemoteConfig, DeviceConfig | None, list[PointConfig]]:
         # Separate remote_config and make adjustments for possible config version 1:
         remote_config = config_dict.pop('remote_config', config_dict.pop('driver_config', {}))
         remote_config['driver_type'] = remote_config.get('driver_type', config_dict.pop('driver_type', None))
@@ -375,13 +375,13 @@ class PlatformDriverAgent(Agent):
     ###############
 
     @RPC.export
-    def get(self, topic: str | Sequence[str] | Set[str] = None, regex: str = None) -> (dict, dict):
+    def get(self, topic: str | Sequence[str] | Set[str] = None, regex: str = None) -> tuple[dict, dict]:
         # Find set of points to query and organize by remote:
         query_plan = self.build_query_plan(topic, regex)
         return self._get(query_plan)
 
     @RPC.export
-    def semantic_get(self, query: str) -> (dict, dict):
+    def semantic_get(self, query: str) -> tuple[dict, dict]:
         exact_matches = self.semantic_query(query)
         query_plan = self.build_query_plan(exact_matches)
         return self._get(query_plan)
@@ -400,19 +400,19 @@ class PlatformDriverAgent(Agent):
         return results, errors
 
     @RPC.export
-    def set(self, value: any, topic: str | Sequence[str] | Set[str] = None, regex: str = None,
-            confirm_values: bool = False, map_points: bool = False) -> (dict, dict):
+    def set(self, value: Any, topic: str | Sequence[str] | Set[str] = None, regex: str = None,
+            confirm_values: bool = False, map_points: bool = False) -> tuple[dict, dict]:
         query_plan = self.build_query_plan(topic, regex)
         return self._set(value, query_plan, confirm_values, map_points)
 
     @RPC.export
-    def semantic_set(self, value: any, query: str, confirm_values: bool = False) -> (dict, dict):
+    def semantic_set(self, value: Any, query: str, confirm_values: bool = False) -> tuple[dict, dict]:
         exact_matches = self.semantic_query(query)
         query_plan = self.build_query_plan(exact_matches)
         return self._set(value, query_plan, confirm_values)
 
-    def _set(self, value: any, query_plan: dict[DriverAgent, Set[PointNode]], confirm_values: bool, map_points=False
-             ) -> (dict, dict):
+    def _set(self, value: Any, query_plan: dict[DriverAgent, Set[PointNode]], confirm_values: bool, map_points=False
+             ) -> tuple[dict, dict]:
         """Set selected points on each remote"""
         results, errors = {}, {}
         sender = self.vip.rpc.context.vip_message.peer
@@ -766,7 +766,7 @@ class PlatformDriverAgent(Agent):
     # Legacy RPC Methods
     #-------------------
     @RPC.export
-    def get_point(self, path: str = None, point_name: str = None, **kwargs) -> any:
+    def get_point(self, path: str = None, point_name: str = None, **kwargs) -> Any:
         """
         RPC method
 
@@ -800,7 +800,7 @@ class PlatformDriverAgent(Agent):
         return remote.get_point(point_name, **kwargs)
 
     @RPC.export
-    def set_point(self, path: str, point_name: str | None, value: any, *args, **kwargs) -> any:
+    def set_point(self, path: str, point_name: str | None, value: Any, *args, **kwargs) -> Any:
         """RPC method
 
         Sets the value of a specific point on a device.
@@ -841,7 +841,7 @@ class PlatformDriverAgent(Agent):
         return self._set_point(point_name, value, sender, **kwargs)
 
     def _set_point(self, topic, value, sender, **kwargs):
-        node = self.equipment_tree.get_node(topic)
+        node: EquipmentNode = self.equipment_tree.get_node(topic)
         if not node:
             raise ValueError(f'No equipment found for topic: {topic}')
         self.equipment_tree.raise_on_locks(node, sender)
@@ -866,11 +866,11 @@ class PlatformDriverAgent(Agent):
         _log.info('Call to deprecated RPC method "scrape_all". This method has been superseded by the "get" method'
                   ' and will be removed in a future version. Please update to the newer method.')
         path = self._equipment_id(topic, None)
-        return self.get(topic=path)
+        return self.get(topic=path)[0]
 
     @RPC.export
     def get_multiple_points(self, path: str | Sequence[str | Sequence] = None, point_names = None,
-                            **kwargs) -> (dict, dict):
+                            **kwargs) -> tuple[dict, dict]:
         """RPC method
 
         Get multiple points on multiple devices. Makes a single
@@ -916,7 +916,7 @@ class PlatformDriverAgent(Agent):
         return results, errors
 
     @RPC.export
-    def set_multiple_points(self, path: str, point_names_values: list[tuple[str, any]], **kwargs) -> dict:
+    def set_multiple_points(self, path: str, point_names_values: list[tuple[str, Any]], **kwargs) -> dict:
         """RPC method
 
         Set values on multiple set points at once. If global override is condition is set,raise OverrideError exception.
@@ -969,8 +969,7 @@ class PlatformDriverAgent(Agent):
         If topic has been reserved by another user
         or if it is not reserved but reservations are required,
          raise ReservationLockError exception.
-        :
-        param path: device path
+        :param path: device path
         :type path: str
         :param point_name: set point to revert
         :type point_name: str
@@ -1047,7 +1046,7 @@ class PlatformDriverAgent(Agent):
         :returns: Request result
         :rtype: dict
 
-        :Return Values:
+        :return Values:
 
             The return values are described in `New Task Response`_.
         """
@@ -1069,7 +1068,7 @@ class PlatformDriverAgent(Agent):
         :returns: Request result
         :rtype: dict
 
-        :Return Values:
+        :return Values:
 
         The return values are described in `Cancel Task Response`_.
 
@@ -1116,7 +1115,7 @@ class PlatformDriverAgent(Agent):
         except Exception as ex:
             self._handle_error(ex, point, headers)
 
-    def handle_set(self, _, sender: str, __, topic: str, ___, message: any):
+    def handle_set(self, _, sender: str, __, topic: str, ___, message: Any):
         """
         Set the value of a point.
 
@@ -1291,7 +1290,7 @@ class PlatformDriverAgent(Agent):
         priority
             The desired task priority, must be 'HIGH', 'LOW', or 'LOW_PREEMPT'
 
-        No message is requires to cancel a schedule.
+        No message is required to cancel a schedule.
 
         """
         request_type = headers.get('type')
@@ -1408,11 +1407,11 @@ class PlatformDriverAgent(Agent):
         else:
             return f'volttron-lib-{interface_name}-driver'
 
-    def _push_result_topic_pair(self, prefix: str, point: str, headers: dict, value: any):
+    def _push_result_topic_pair(self, prefix: str, point: str, headers: dict, value: Any):
         topic = normtopic('/'.join([prefix, point]))
         self.vip.pubsub.publish('pubsub', topic, headers, message=value)
 
-    def _split_topic(self, topic: str, point: str = None) -> (str, str):
+    def _split_topic(self, topic: str, point: str = None) -> tuple[str, str]:
         """Convert actuator-style optional point names to (path, point) pair."""
         topic = topic.strip('/')
         if not topic.startswith(self.equipment_tree.root):

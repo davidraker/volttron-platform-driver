@@ -25,8 +25,9 @@
 import fnmatch
 import logging
 
-from datetime import timedelta
+from datetime import datetime, timedelta
 
+from volttron.client.vip.agent.core import ScheduledEvent
 from volttron.driver.base.interfaces import DriverInterfaceError
 from volttron.utils import format_timestamp, get_aware_utc_now, parse_timestamp_string
 from volttron.utils.jsonapi import dumps, loads
@@ -43,7 +44,7 @@ class OverrideError(DriverInterfaceError):
 class OverrideManager:
     def __init__(self, parent):
         self.devices = set()
-        self.interval_events = {}
+        self.interval_events: dict[str, tuple[ScheduledEvent, datetime] | None]  = {}
         self.agent = parent
         self.patterns = set()
 
@@ -121,7 +122,7 @@ class OverrideManager:
         # Set a timer for the override duration (if > 0)
         config_update = self._update_override_interval(duration, pattern)
 
-        # If we changed the override intervals and it wasn't a config store callback,
+        # If we changed the override intervals, and it wasn't a config store callback,
         # then update our stored override patterns in config store
         if config_update and not from_config_store:
             patterns_dict = {}
@@ -184,7 +185,7 @@ class OverrideManager:
         """Schedules a new override event for the specified interval and pattern. If the pattern already exists and new
         end time is greater than old one, the event is cancelled and new event is scheduled.
 
-        :param interval override duration. If interval is <= 0.0, implies indefinite duration
+        :param interval: override duration. If interval is <= 0.0, implies indefinite duration
         :type pattern: float
         :param pattern: Override pattern.
         :type pattern: str
