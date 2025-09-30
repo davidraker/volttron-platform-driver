@@ -3,8 +3,10 @@ import pytest
 from unittest.mock import MagicMock, ANY, patch
 from pathlib import Path
 
+from volttron.types.auth.auth_credentials import Credentials
 from volttron.utils import get_aware_utc_now
 from volttrontesting.server_mock import TestServer
+from volttrontesting.mock_core_builder import MockCoreBuilder
 
 from platform_driver.agent import PlatformDriverAgent
 from platform_driver.overrides import OverrideManager
@@ -20,7 +22,8 @@ def driver_agent_fixture():
     returning the agent so multiple tests can use it.
     """
     ts = TestServer()
-    pda = ts.instantiate_agent(PlatformDriverAgent)
+    pda = PlatformDriverAgent(credentials=Credentials(identity="platform.driver"), name="mock")
+    ts.connect_agent(pda)
 
     driver_config = {
         "driver_type":

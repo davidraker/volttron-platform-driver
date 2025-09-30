@@ -2,7 +2,7 @@ import json
 import tempfile
 from pathlib import Path
 import pytest
-from volttrontesting.platformwrapper import InstallAgentOptions
+# from volttrontesting.platformwrapper import InstallAgentOptions
 import re
 import time
 

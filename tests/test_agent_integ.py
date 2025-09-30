@@ -8,7 +8,7 @@ import time
 import tempfile
 from pathlib import Path
 import ast
-from volttrontesting.platformwrapper import InstallAgentOptions
+# from volttrontesting.platformwrapper import InstallAgentOptions
 import pytest
 import gevent
 

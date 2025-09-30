@@ -1,6 +1,6 @@
 import pickle
 import pytest
-from mock import MagicMock, Mock
+from unittest.mock import MagicMock, Mock
 from platform_driver.agent import PlatformDriverAgent
 from platform_driver.reservations import ReservationManager, Task, TimeSlice, Reservation
 from pickle import dumps
