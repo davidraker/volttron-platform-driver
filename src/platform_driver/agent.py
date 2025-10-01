@@ -425,11 +425,12 @@ class PlatformDriverAgent(Agent):
                     pass # TODO: Handle this exception.
             # TODO: When map_points is True, all topics are sent to all remotes. This is probably wrong.
             point_value_tuples = list(value.items()) if map_points else [(p.identifier, value) for p in point_set]
-            query_return_errors = remote.set_multiple_points(point_value_tuples)
+            query_return_results, query_return_errors = remote.set_multiple_points(point_value_tuples)
+            results.update(query_return_results)
             errors.update(query_return_errors)
             if confirm_values:
                 # TODO: Should results contain the values read back from the device, or Booleans for success?
-                results.update(remote.get_multiple_points([p.identifier for p in point_set]))
+                results.update(remote.get_multiple_points([p.identifier for p in point_set])[0])
         return results, errors
 
     @RPC.export
