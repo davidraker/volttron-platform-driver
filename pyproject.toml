@@ -31,7 +31,7 @@ classifiers = [
     "Intended Audience :: Other Audience",
     "License :: OSI Approved :: Apache Software License"
 ]
-include = ["volttron-platform-driver-*-default-vip-id"]
+include =[{path="volttron-platform-driver-default-vip-id", format = ["sdist", "wheel"]}]
 
 [tool.poetry.dependencies]
 python = ">=3.10,<4.0"
