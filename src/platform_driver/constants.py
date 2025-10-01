@@ -22,20 +22,30 @@
 # ===----------------------------------------------------------------------===
 # }}}
 
-"""Configuration for the pytest test suite."""
+from volttron.client.messaging import topics as t
 
-import pytest
+VALUE_RESPONSE_PREFIX = t.ACTUATOR_VALUE()
+REVERT_POINT_RESPONSE_PREFIX = t.ACTUATOR_REVERTED_POINT()
+REVERT_DEVICE_RESPONSE_PREFIX = t.ACTUATOR_REVERTED_DEVICE()
+ERROR_RESPONSE_PREFIX = t.ACTUATOR_ERROR()
 
-import sys
-if "src" not in sys.path:
-    sys.path.insert(0, "src")
+WRITE_ATTEMPT_PREFIX = t.ACTUATOR_WRITE()
 
-from volttrontesting.fixtures.volttron_platform_fixtures import volttron_instance
+GET_TOPIC = t.ACTUATOR_GET()
+RESERVATION_REQUEST_TOPIC = t.ACTUATOR_SCHEDULE_REQUEST()
+RESERVATION_RESULT_TOPIC = t.ACTUATOR_SCHEDULE_RESULT()
+REVERT_DEVICE_TOPIC = t.ACTUATOR_REVERT_DEVICE()
+REVERT_POINT_TOPIC = t.ACTUATOR_REVERT_POINT()
+SET_TOPIC = t.ACTUATOR_SET()
 
-from .fixtures import *
+RESERVATION_ACTION_NEW = 'NEW_RESERVATION'
+RESERVATION_ACTION_CANCEL = 'CANCEL_RESERVATION'
+LEGACY_RESERVATION_ACTION_NEW = 'NEW_SCHEDULE'
+LEGACY_RESERVATION_ACTION_CANCEL = 'CANCEL_SCHEDULE'
 
+RESERVATION_RESPONSE_SUCCESS = 'SUCCESS'
+RESERVATION_RESPONSE_FAILURE = 'FAILURE'
 
-@pytest.fixture()
-def publish_agent(volttron_instance):
-    assert volttron_instance.is_running()
-    yield volttron_instance.build_agent(identity="publish_agent")
+RESERVATION_CANCEL_PREEMPTED = 'PREEMPTED'
+
+ACTUATOR_COLLECTION = 'actuators'
