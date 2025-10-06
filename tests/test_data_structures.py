@@ -29,14 +29,14 @@ SAMPLE_REGISTRY = [{'Point Name': 'EKG', 'Volttron Point Name': 'EKG', 'Units': 
 {'Point Name': 'ERWH_Phy0_ValveState', 'Volttron Point Name': 'ValveState', 'Units': '1/0', 'Units Details': '1/0', 'Writable': 'TRUE', 'Starting Value': '0', 'Type': 'int', 'Notes': 'power on off status'}
 ]
 
-def test_build_equipment_tree(driver_agent):
-    et = EquipmentTree()
+def test_build_equipment_tree(driver_agent, driver_service):
+    et = EquipmentTree(driver_service)
     assert et.root == 'devices'
     assert len(et.all_nodes()) == 1
     config = {}
 
     # Test adding of a device:
-    et.add_device('devices/Foo/Bar/Baz', config, driver_agent)
+    et.add_device('devices/Foo/Bar/Baz', config, driver_agent, {})
     assert len(et.all_nodes()) == 4
     foo = et.get_node('devices/Foo')
     bar = et.get_node('devices/Foo/Bar')
@@ -47,7 +47,7 @@ def test_build_equipment_tree(driver_agent):
     assert isinstance(bar, EquipmentNode) and not isinstance(bar, DeviceNode)
     assert not baz.is_point and baz.is_device
     assert isinstance(baz, EquipmentNode) and isinstance(baz, DeviceNode)
-    et.add_device('devices/Foo/Car/Baz', {'registry_config': SAMPLE_REGISTRY}, driver_agent)
+    et.add_device('devices/Foo/Car/Baz', {'registry_config': SAMPLE_REGISTRY}, driver_agent, SAMPLE_REGISTRY)
     print(et.show())
     car = et.get_node('devices/Foo/Car')
     carbaz = et.get_node('devices/Foo/Car/Baz')

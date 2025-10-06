@@ -381,6 +381,12 @@ class TestPollSchedulerAddToSchedule:
         data_model.get_group.return_value = 'group1'
         data_model.get_remote.return_value = 'remote1'
         data_model.get_polling_interval.return_value = 60
+        data_model.get_point_topics.return_value = ('depth_topic', 'breadth_topic')
+        data_model.get_device_topics.return_value = ('device_depth', 'device_breadth')
+        data_model.is_published_single_depth.return_value = False
+        data_model.is_published_single_breadth.return_value = False
+        data_model.is_published_multi_depth.return_value = False
+        data_model.is_published_multi_breadth.return_value = False
         return data_model
 
     @pytest.fixture
@@ -1699,7 +1705,7 @@ class TestPollSetRemoveFromPublishSetup:
         point_identifier = "point1"
         point_depth, point_breadth = data_model.get_point_topics(point_identifier)
         device_depth, device_breadth = data_model.get_device_topics(point_identifier)
-        poll_set.single_depth = {point_identifier}
+        poll_set.single_depth = {point_depth}
         poll_set.single_breadth = {(point_depth, point_breadth)}
         poll_set.multi_depth = {device_depth: {point_depth}}
         poll_set.multi_breadth = {device_breadth: {point_identifier}}

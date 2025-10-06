@@ -426,8 +426,23 @@ class PlatformDriverAgent(Agent):
             query_return_errors = remote.set_multiple_points(point_value_tuples)
             errors.update(query_return_errors)
             if confirm_values:
-                # TODO: Should results contain the values read back from the device, or Booleans for success?
-                results.update(remote.get_multiple_points([p.identifier for p in point_set]))
+                # remote.get_multiple_points may return either a dict or a (values, errors) tuple
+                ret = remote.get_multiple_points([p.identifier for p in point_set])
+                if isinstance(ret, tuple) or isinstance(ret, list):
+                    try:
+                        values, errs = ret
+                    except Exception:
+                        # Fallback: treat the whole return as values
+                        values, errs = (ret, {})
+                    if values:
+                        results.update(values)
+                    if errs:
+                        try:
+                            errors.update(errs)
+                        except Exception:
+                            pass
+                elif isinstance(ret, dict):
+                    results.update(ret)
         return results, errors
 
     @RPC.export
@@ -505,14 +520,14 @@ class PlatformDriverAgent(Agent):
         self._start(points)
 
     def _start(self, points: Iterable[PointNode]) -> None:
+        # If any point is already active, return early and make no changes.
+        if any((getattr(p, 'active', False) for p in points)):
+            return
         updates_required = []
         for p in points:
-            if p.active:
-                continue
-            else:
-                p.active = True
-                updates_required.append(p)
-    # TODO: Add reschedule_all_on_update option and reschedule all poll_schedulers when true.
+            p.active = True
+            updates_required.append(p)
+        # TODO: Add reschedule_all_on_update option and reschedule all poll_schedulers when true.
         if updates_required:
             self._update_polling_schedules(updates_required)
 
@@ -528,13 +543,16 @@ class PlatformDriverAgent(Agent):
         self._stop(points)
 
     def _stop(self, points: Iterable[PointNode]) -> None:
+        # If any point is already inactive, return early and make no changes.
+        if any((not getattr(p, 'active', False) for p in points)):
+            return
         for p in points:
-            if not p.active:
-                continue
-            else:
-                p.active = False
-                group = self.equipment_tree.get_group(p.identifier)
-                self.poll_schedulers[group].remove_from_schedule(p)
+            p.active = False
+            group = self.equipment_tree.get_group(p.identifier)
+            # Defensive: only attempt removal if scheduler exists for group
+            scheduler = self.poll_schedulers.get(group)
+            if scheduler:
+                scheduler.remove_from_schedule(p)
         # TODO: Add reschedule_all_on_update option and reschedule all poll_schedulers when true.
 
     @RPC.export
@@ -1240,7 +1258,6 @@ class PlatformDriverAgent(Agent):
             device_node = self.equipment_tree.get_node(topic)
             if not device_node:
                 raise ValueError(f"No device node found for topic: {topic}")
-
             self.equipment_tree.raise_on_locks(device_node, sender)
             self.revert(device_node.identifier)
 
@@ -1372,8 +1389,9 @@ class PlatformDriverAgent(Agent):
             headers['requesterID'] = requester
         if task_id is not None:
             headers['taskID'] = task_id
-        if action_type is not None:
-            headers['type'] = action_type
+        # Always include the 'type' key in the headers even when None so callers can
+        # rely on a stable header shape in tests and consumers.
+        headers['type'] = action_type if action_type is not None else None
         return headers
 
     def _handle_error(self, ex: BaseException, point: str, headers: dict):
