@@ -9,11 +9,11 @@ import sys
 from pprint import pprint
 
 from volttron.client.commands.connection import ControlConnection
-from volttron.utils import get_address, parse_json_config
+from volttron.utils import parse_json_config, ClientContext as cc
 
 _log = logging.getLogger(os.path.basename(sys.argv[0]) if __name__ == "__main__" else __name__)
 
-connection = ControlConnection(get_address(), peer='platform.driver')
+connection = ControlConnection(cc.get_address(), peer='platform.driver')
 
 
 # TODO: How to supress space after topic-part is completed?
