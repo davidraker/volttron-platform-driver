@@ -31,20 +31,12 @@ description of the configuration options and RPC methods which can be used to ma
 
 Whenever trended points are polled, these are then published to the message bus. There are several options available
 for how these publishes are organized. Points can be published at the time they are polled (individually or in batches).
-Alternately, they can be published a fixed schedule for entire devices (which may include points polled at
+Alternately, they can be published on a fixed schedule for entire devices (which may include points polled at
 different rates). See :ref:`Trending Publish Configurations <Trending-Publish-Configurations>` for detailed
 information on how trending publishes can be configured. The default (and generally recommended) behavior is to publish
 all simultaneously polled points in a batch on the ``devices/<device_topic>/multi`` topic.
-The ``/multi`` postfix is used by historians to identify device publishes which should be archived to the database since
-these will contain multiple points but are still guaranteed to be the result of fresh queries.
-
-..
-    TODO:: This discussion of topics should probably be moved to a dedicated section describing the Equipment Tree.
-
-The ``<device_topic>`` associated with a given device is arbitrary and configurable by the user. A common convention,
-however, is to use a hierarchical naming convention to indicate where the associated equipment might be found:
-
-    ``<campus>/<building>/<device>/<sub_device>``
+The ``/multi`` postfix is the default identifier used by historians to find device publishes to archive since they
+contain multiple points and are guaranteed to be the result of fresh queries.
 
 .. warning::
 
@@ -58,6 +50,14 @@ however, is to use a hierarchical naming convention to indicate where the associ
     separate from the poll rate for any point on the device. The last known value is provided for every actively
     trended point each time the ``/all`` publish is made. It is left to users of ``/all`` publishes to ensure that
     trended points are being polled with sufficient frequency to avoid the publication of stale data in this paradigm.
+
+..
+    TODO:: This discussion of topics should probably be moved to a dedicated section describing the Equipment Tree.
+
+The ``<device_topic>`` associated with a given device is arbitrary and configurable by the user. A common convention,
+however, is to use a hierarchical naming convention to indicate where the associated equipment might be found:
+
+    ``<campus>/<building>/<device>/<sub_device>``
 
 
 Query & Command Methods

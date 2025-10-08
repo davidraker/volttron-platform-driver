@@ -8,16 +8,10 @@ The Platform Driver Agent manages all device communication. This agent automatic
 configured devices and publishes it to the message bus, generally on a specified interval.
 It also features a number of RPC endpoints for getting and setting points on devices.
 
-The Platform Driver creates a driver instance for each :ref:`device configuration <Device-Configuration-File>`
-in the platform driver's configuration store. While running, the driver periodically polls data from the device and
-publishes it to the message bus. The driver additionally handles ad-hoc read and write requests issued by RPC through
-the :ref:`Actuator <Actuator-Agent>` or Platform Driver agents. When device configurations are removed from the store,
-the corresponding driver instance is also removed by the Platform Driver.
-
-Actual communication with devices is handled by the driver's "Interface" class. An Interface is a Python class
-which serves to handle communication with the device. Interfaces wrap protocol-specific functionality
-in standard methods to be used by the driver. Information on developing new driver interfaces can be found on
-:ref:`the driver development page <Driver-Development>`.
+The Platform Driver uses :ref:`device configuration files <Device-Configuration-File>` in the platform driver's
+configuration store to set up driver instances for each unique device controller on the network.
+The agents also builds a polling schedule on which to retrieve data from the device and publish it to the message bus.
+The driver additionally handles ad-hoc read and write requests issued by RPC.
 
 .. note::
 
@@ -25,6 +19,10 @@ in standard methods to be used by the driver. Information on developing new driv
     has been update to use the more precise language. The word "pull" or "query" are used for the activity of discretely
     requesting data from a remote, while the word "polling" is used where the data is requested in a periodic loop. The
     words "poll" and "scape", as used here, may be considered interchangeable.
+
+Actual communication with devices is handled using protocol-specific implementations of standard logic logic defined
+in an "Interface" class. Information on developing new driver interfaces can be found on
+:ref:`the driver development page <Driver-Development>`.
 
 
 .. _Platform-Driver-Configuration:
@@ -39,14 +37,14 @@ The platform driver agent may be installed using vctl:
 
 .. code-block:: bash
 
-    vctl install volttron-platform-driver --vip-identity platform.driver --tag driver
+    vctl install volttron-platform-driver --tag driver
 
 Additionally, to communicate with any devices, it will be necessary to install one or more interface libraries.
-These may be installed from pypi using pip:
+These may be installed from pypi using vctl:
 
 .. code-block:: bash
 
-    pip install volttron-lib-fake-driver
+    vctl install-lib volttron-lib-fake-driver
 
 Officially maintained driver interfaces (with corresponding package names) include:
 
@@ -64,8 +62,8 @@ The Platform Driver requires use of the configuration store and expects three ty
 * **Platform Driver Agent Configuration (one for the agent):** global settings for all drivers.
 * **Device Configuration (one per device):** settings for the driver to manage an individual device.
 * **Registry (up to one per device):** contains the settings for each individual data point for a device or class of
-  device. Some drivers may require one per registry per individual device, but often one registry may be shared by
-  multiple devices of the same type.
+  device. Some protocols (e.g, BACnet) may require one registry per individual device,
+  but often one registry may be shared by multiple devices of the same model.
 
 Platform Driver Agent Configuration
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
