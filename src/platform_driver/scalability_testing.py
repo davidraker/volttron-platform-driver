@@ -27,7 +27,7 @@ import sys
 
 from datetime import datetime
 
-from volttron.utils.math_utils import mean, stdev
+from volttron.platform.agent.math_utils import mean, stdev
 
 
 _log = logging.getLogger(__name__)
