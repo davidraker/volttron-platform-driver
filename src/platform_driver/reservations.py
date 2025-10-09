@@ -33,8 +33,8 @@ from datetime import timedelta
 from pickle import dumps, loads
 from tzlocal import get_localzone
 
-from volttron.client.messaging import topics
-from volttron.utils import get_aware_utc_now, format_timestamp, parse_timestamp_string
+from volttron.platform.messaging import topics
+from volttron.platform.agent.utils import get_aware_utc_now, format_timestamp, parse_timestamp_string
 
 PRIORITY_HIGH = 'HIGH'
 PRIORITY_LOW = 'LOW'

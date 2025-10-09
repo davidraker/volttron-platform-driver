@@ -22,7 +22,7 @@
 # ===----------------------------------------------------------------------===
 # }}}
 
-from volttron.client.messaging import topics as t
+from volttron.platform.messaging import topics as t
 
 VALUE_RESPONSE_PREFIX = t.ACTUATOR_VALUE()
 REVERT_POINT_RESPONSE_PREFIX = t.ACTUATOR_REVERTED_POINT()

@@ -35,9 +35,9 @@ from typing import Any
 from weakref import WeakKeyDictionary, WeakValueDictionary
 
 # noinspection PyProtectedMember
-from volttron.client.vip.agent.core import ScheduledEvent
+from volttron.platform.vip.agent.core import ScheduledEvent
 from volttron.driver.base.driver import DriverAgent
-from volttron.utils import get_aware_utc_now
+from volttron.platform.agent.utils import get_aware_utc_now
 
 from platform_driver.config import GroupConfig
 from platform_driver.equipment import EquipmentTree, PointNode
