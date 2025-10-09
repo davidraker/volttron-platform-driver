@@ -38,8 +38,8 @@ python = ">=3.10,<4.0"
 argcomplete = ">=3.6.2"
 treelib = ">=1.7.0"
 #volttron-core = ">=2.0.0rc0"
-volttron = {path = "../../monolithic", develop = true}
-volttron-lib-base-driver = { path="../base", develop = true }
+volttron = {path = "../volttron", develop = true}
+volttron-lib-base-driver = { path="../volttron-lib-base-driver", develop = true }
 # volttron-lib-topic-tree = { path = "../volttron-lib-topic-tree", develop = true }
 
 
