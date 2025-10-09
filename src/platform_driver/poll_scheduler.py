@@ -39,8 +39,8 @@ from volttron.platform.vip.agent.core import ScheduledEvent
 from volttron.driver.base.driver import DriverAgent
 from volttron.platform.agent.utils import get_aware_utc_now
 
-from platform_driver.config import GroupConfig
-from platform_driver.equipment import EquipmentTree, PointNode
+from .config import GroupConfig
+from .equipment import EquipmentTree, PointNode
 
 
 _log = logging.getLogger(__name__)
