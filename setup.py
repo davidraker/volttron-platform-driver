@@ -28,18 +28,18 @@ from setuptools import setup, find_packages
 MAIN_MODULE = 'agent'
 
 # Find the agent package that contains the main module
-packages = find_packages('src')
+packages = find_packages('.')
 agent_package = ''
-for package in find_packages('src'):
+for package in find_packages('.'):
     # Because there could be other packages such as tests
-    if path.isfile('src/' + package + '/' + MAIN_MODULE + '.py') is True:
+    if path.isfile(package + '/' + MAIN_MODULE + '.py') is True:
         agent_package = package
 if not agent_package:
-    raise RuntimeError(f'None of the packages under {path.abspath(".")} --- [{listdir()}] contain the file {MAIN_MODULE}.py')
+    raise RuntimeError(f'None of the packages under {path.abspath(".")} contain the file {MAIN_MODULE}.py')
 
 # Find the version number from the main module
 agent_module = agent_package + '.' + MAIN_MODULE
-_temp = __import__('src.' + agent_module, globals(), locals(), ['__version__'], 0)
+_temp = __import__(agent_module, globals(), locals(), ['__version__'], 0)
 __version__ = _temp.__version__
 
 # Setup
