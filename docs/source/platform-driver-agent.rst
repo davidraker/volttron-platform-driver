@@ -63,7 +63,7 @@ The Platform Driver requires use of the configuration store and expects three ty
 * **Device Configuration (one per device):** settings for the driver to manage an individual device.
 * **Registry (up to one per device):** contains the settings for each individual data point for a device or class of
   device. Some protocols (e.g, BACnet) may require one registry per individual device,
-  but often one registry may be shared by multiple devices of the same model.
+  but often with other protocols one registry may be shared by multiple devices of the same model.
 
 Platform Driver Agent Configuration
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
@@ -89,9 +89,11 @@ The following example sets the driver_scrape_interval to 0.05 seconds or 20 devi
         "group_offset_interval": 0.0
     }
 
-* **driver_scrape_interval** - Sets the interval between devices polls. Defaults to 0.02 or 50 devices per second.
-  This is useful for when the platform polls too many devices at once resulting in failed polls. To spread polling of n
-  devices evenly throughout a polling cycle, this may be set to:
+* **minimum_polling_interval** (alias: driver_scrape_interval) - Sets the interval between devices polls.
+  Defaults to 0.02 or 50 devices per second. This is useful for when the platform polls too many devices at once
+  resulting in failed polls.
+
+To spread polling of n devices evenly throughout a polling cycle, this may be set to:
 
     .. code-block::
 
