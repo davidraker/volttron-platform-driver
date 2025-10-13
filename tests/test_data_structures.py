@@ -4,6 +4,7 @@ import pytest
 
 from platform_driver.equipment import DeviceNode, EquipmentTree, EquipmentNode, PointNode
 from volttron.driver.base.driver import DriverAgent
+from volttron.driver.base.config import PointConfig
 
 SAMPLE_REGISTRY = [{'Point Name': 'EKG', 'Volttron Point Name': 'EKG', 'Units': 'waveform', 'Units Details': 'waveform', 'Writable': 'TRUE', 'Starting Value': 'sin', 'Type': 'float', 'Notes': 'Sine wavefor baseline output'},
 {'Point Name': 'Heartbeat', 'Volttron Point Name': 'Heartbeat', 'Units': 'On/Off', 'Units Details': 'On/Off', 'Writable': 'TRUE', 'Starting Value': '0', 'Type': 'boolean', 'Notes': 'Point for heartbeat toggle'},
@@ -47,7 +48,9 @@ def test_build_equipment_tree(driver_agent, driver_service):
     assert isinstance(bar, EquipmentNode) and not isinstance(bar, DeviceNode)
     assert not baz.is_point and baz.is_device
     assert isinstance(baz, EquipmentNode) and isinstance(baz, DeviceNode)
-    et.add_device('devices/Foo/Car/Baz', {'registry_config': SAMPLE_REGISTRY}, driver_agent, SAMPLE_REGISTRY)
+    # Convert registry dicts to PointConfig instances expected by EquipmentTree
+    registry_point_configs = [PointConfig(**d) for d in SAMPLE_REGISTRY]
+    et.add_device('devices/Foo/Car/Baz', {'registry_config': SAMPLE_REGISTRY}, driver_agent, registry_point_configs)
     print(et.show())
     car = et.get_node('devices/Foo/Car')
     carbaz = et.get_node('devices/Foo/Car/Baz')
