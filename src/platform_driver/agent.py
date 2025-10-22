@@ -61,7 +61,7 @@ from platform_driver.scalability_testing import ScalabilityTester
 
 # setup_logging()
 from volttron.utils.context import ClientContext as Cc
-logging.basicConfig(filename=f"{Cc.get_volttron_home()}/driver.log", level=logging.DEBUG)
+logging.basicConfig(filename=f"{Cc.get_volttron_home()}/driver.log", level=logging.DEBUG, format='%(asctime)s %(levelname)s %(name)s %(message)s')
 _log = logging.getLogger(__name__)
 __version__ = '4.0'
 
@@ -204,7 +204,7 @@ class PlatformDriverAgent(Agent):
             # Received new device node.
             interface = self._get_configured_interface(remote_config)
             # Make remote_config correct subclass of RemoteConfig.
-            remote_config = interface.INTERFACE_CONFIG_CLASS(**remote_config.model_dump())
+            remote_config = interface.default_config.copy(update=remote_config.model_dump())
             registry_config = config_dict.pop('registry_config', [])
             registry_config = registry_config if registry_config is not None else []
             dev_config = DeviceConfig(**config_dict)
@@ -262,6 +262,10 @@ class PlatformDriverAgent(Agent):
             driver_agent = DriverAgent(remote_config, self.core, self.equipment_tree, self.scalability_test,
                                        self.config.timezone, unique_remote_id, self.vip)
             self.equipment_tree.remotes[unique_remote_id] = driver_agent
+        elif driver_agent.config != remote_config:
+            _log.warning(f'Remote configuration for equipment "{equipment_name}" does not match configuration'
+                         f' of shared remote "{unique_remote_id}. Check configurations for consistency or consider'
+                         f' setting "allow_duplicate_remotes == True".')
         return driver_agent
 
     def _get_configured_interface(self, remote_config):
@@ -270,6 +274,12 @@ class PlatformDriverAgent(Agent):
             try:
                 module = remote_config.module
                 interface = BaseInterface.get_interface_subclass(remote_config.driver_type, module)
+                if interface.default_config is None:
+                    try:
+                        default_config = self.vip.config.get(f'interfaces/{remote_config.driver_type}')
+                    except KeyError:
+                        default_config = {}
+                    interface.default_config = interface.INTERFACE_CONFIG_CLASS(**default_config)
             except (AttributeError, ModuleNotFoundError, ValueError) as e:
                 raise ValueError(f'Unable to configure driver with interface: {remote_config.driver_type}.'
                                  f' This interface type is currently unknown or not installed.'
