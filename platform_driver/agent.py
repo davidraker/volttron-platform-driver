@@ -199,7 +199,8 @@ class PlatformDriverAgent(Agent):
             # Received new device node.
             interface = self._get_configured_interface(remote_config)
             # Make remote_config correct subclass of RemoteConfig.
-            remote_config = interface.default_config.copy(update=remote_config.model_dump())
+            remote_config = interface.INTERFACE_CONFIG_CLASS(
+                **(interface.default_config.copy() | remote_config.model_dump()))
             registry_config = config_dict.pop('registry_config', [])
             registry_config = registry_config if registry_config is not None else []
             dev_config = DeviceConfig(**config_dict)
@@ -271,10 +272,9 @@ class PlatformDriverAgent(Agent):
                 interface = BaseInterface.get_interface_subclass(remote_config.driver_type, module)
                 if interface.default_config is None:
                     try:
-                        default_config = self.vip.config.get(f'interfaces/{remote_config.driver_type}')
+                        interface.default_config = self.vip.config.get(f'interfaces/{remote_config.driver_type}')
                     except KeyError:
-                        default_config = {}
-                    interface.default_config = interface.INTERFACE_CONFIG_CLASS(**default_config)
+                        interface.default_config = {}
             except (AttributeError, ModuleNotFoundError, ValueError) as e:
                 raise ValueError(f'Unable to configure driver with interface: {remote_config.driver_type}.'
                                  f' This interface type is currently unknown or not installed.'
