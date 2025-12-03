@@ -263,6 +263,8 @@ class EquipmentTree(TopicTree):
 
         # Set up the device node itself.
         try:
+            # TODO: It would be possible to allow inheritance of dev_config properties from something set on parent,
+            #  similar to how registry configs are handled.
             device_node = DeviceNode(config=dev_config, driver=driver_agent, tag=device_name, identifier=device_topic)
             device_node.data['registry_name'] = self.set_registry_name(device_node.identifier)
             self.add_node(device_node, parent=parent)
