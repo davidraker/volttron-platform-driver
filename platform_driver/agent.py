@@ -515,7 +515,7 @@ class PlatformDriverAgent(Agent):
     def _start(self, points: Iterable[PointNode]) -> None:
         updates_required = []
         for p in points:
-            if p.active:
+            if self.equipment_tree.is_active(p.identifier):
                 continue
             else:
                 p.active = True
@@ -537,7 +537,7 @@ class PlatformDriverAgent(Agent):
 
     def _stop(self, points: Iterable[PointNode]) -> None:
         for p in points:
-            if not p.active:
+            if not self.equipment_tree.is_active(p.identifier):
                 continue
             else:
                 p.active = False
@@ -667,7 +667,7 @@ class PlatformDriverAgent(Agent):
         if regex:
             children = [c for c in children if regex.search(c)]
         if active:
-            children = [c for c in children if c.active]
+            children = [c for c in children if self.equipment_tree.is_active(c.identifier)]
         if enabled:
             children = [c for c in children if c.enabled]
         return [c.identifier for c in children]
