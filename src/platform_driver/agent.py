@@ -966,11 +966,14 @@ class PlatformDriverAgent(Agent):
         """
         Sends heartbeat to all devices
         """
-        # TODO: Make sure this is being called with the full topic.
+        # TODO: This should send to all remotes, collect tasks, and then log tasks after the fact.
         # TODO: Move this into the PollScheduler with configurable (per device) set of points and intervals (per-point).
         _log.debug("sending heartbeat")
         for remote in self.equipment_tree.remotes.values():
-            remote.heart_beat()
+            try:
+                remote.heart_beat()
+            except (Exception, gevent.Timeout) as e:
+                _log.warning(f'Failed to set heart_beat point on remote: {remote.unique_id} -- {e}.')
 
     @RPC.export
     def revert_point(self, path: str, point_name: str, **kwargs):
