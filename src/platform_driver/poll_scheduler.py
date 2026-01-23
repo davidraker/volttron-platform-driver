@@ -100,6 +100,7 @@ class PollSet:
         if self.data_model is not other.data_model:
             raise ValueError(f'Cannot combine PollSets based on different data models:'
                              f' {self.data_model}, {other.data_model}.')
+        # TODO: Why can't we have polling schedules for multiple remotes -- e.g., a serial bus with many remotes.
         if self.remote is not other.remote:
             raise ValueError(f'Cannot combine PollSets based on different remotes:'
                              f' {self.remote.unique_id}, {other.remote.unique_id}.')

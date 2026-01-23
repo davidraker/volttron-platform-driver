@@ -341,7 +341,7 @@ class PlatformDriverAgent(Agent):
 
     def _all_publish(self, node):
         device_node = self.equipment_tree.get_node(node.identifier)
-        if not self.equipment_tree.is_ready(device_node.identifier):
+        if device_node is not None and not self.equipment_tree.is_ready(device_node.identifier):
             _log.info(f'Skipping all publish of device: {device_node.identifier}. Data is not yet ready.')
         if self.equipment_tree.is_stale(device_node.identifier):
             _log.warning(f'Skipping all publish of device: {device_node.identifier}. Data is stale.')

@@ -73,7 +73,7 @@ class EquipmentNode(TopicNode):
 
     @property
     def meta_data(self) -> dict:
-        return self.data['meta_data']
+        return self.data.get('meta_data')
 
     @meta_data.setter
     def meta_data(self, value: dict):
