@@ -496,11 +496,14 @@ class PlatformDriverAgent(Agent):
     def _last(points: Iterable[PointNode], value: bool, updated: bool):
         if value:
             if updated:
-                return_dict = {p.topic: {'value': p.last_value, 'updated': p.last_updated} for p in points}
+                return_dict = {p.topic: {
+                    'value': p.last_value,
+                    'updated': (p.last_updated.isoformat() if p.last_updated else None)} for p in points
+                }
             else:
                 return_dict = {p.topic: p.last_value for p in points}
         else:
-            return_dict = {p.topic: p.last_updated for p in points}
+            return_dict = {p.topic: (p.last_updated.isoformat() if p.last_updated else None) for p in points}
         return return_dict
 
     #-----------
