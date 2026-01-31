@@ -349,15 +349,18 @@ class PlatformDriverAgent(Agent):
             headers = publication_headers()
             depth_topic, breadth_topic = self.equipment_tree.get_device_topics(device_node.identifier)
             points = self.equipment_tree.points(device_node.identifier)
+            # TODO: Consider whether we should have a way to include inactive points in all_publish,
+            #  e.g., if last_updated != None or it has a value or if not stale. Should there be choices for this?
+            points_to_publish = [p for p in points if self.equipment_tree.is_active(p.identifier)]
             if self.equipment_tree.is_published_all_depth(device_node.identifier):
                 publish_wrapper(self.vip, f'{depth_topic}/all', headers=headers, message=[
-                    {p.identifier.rsplit('/', 1)[-1]: p.last_value for p in points},
-                    {p.identifier.rsplit('/', 1)[-1]: p.meta_data for p in points}
+                    {p.identifier.rsplit('/', 1)[-1]: p.last_value for p in points_to_publish},
+                    {p.identifier.rsplit('/', 1)[-1]: p.meta_data for p in points_to_publish}
                 ])
             elif self.equipment_tree.is_published_all_breadth(device_node.identifier):
                 publish_wrapper(self.vip, f'{breadth_topic}/all', headers=headers, message=[
-                    {p.identifier.rsplit('/', 1)[-1]: p.last_value for p in points},
-                    {p.identifier.rsplit('/', 1)[-1]: p.meta_data for p in points}
+                    {p.identifier.rsplit('/', 1)[-1]: p.last_value for p in points_to_publish},
+                    {p.identifier.rsplit('/', 1)[-1]: p.meta_data for p in points_to_publish}
                 ])
 
     ###############
