@@ -306,14 +306,21 @@ class EquipmentTree(TopicTree):
                 new_point = PointNode(config=point_config, tag=point_config.volttron_point_name,
                                       identifier='/'.join([nid, point_config.volttron_point_name]))
                 self.add_node(new_point, parent=nid)
-                changes = True
-            elif point_config != existing.config:
-                existing.config = point_config
                 new_register = remote.interface.create_register(point_config)
                 remote.interface.insert_register(new_register, nid)
+                remote.update_metadata(point_id)
                 changes = True
+            else:
+                if point_config != existing.config:
+                    existing.config = point_config
+                    new_register = remote.interface.create_register(point_config)
+                    remote.interface.insert_register(new_register, nid)
+                    remote.update_metadata(point_id)
+                    changes = True
                 existing_points.remove(point_id)
         for removed in existing_points:
+            for poll_scheduler in self.agent.poll_schedulers.values():
+                poll_scheduler.remove_from_schedule(self.get_node(removed), self)
             self.remove_segment(removed)
             changes = True
         return changes

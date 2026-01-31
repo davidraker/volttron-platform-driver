@@ -307,13 +307,14 @@ class PlatformDriverAgent(Agent):
     def _update_polling_schedules(self, points):
         reschedules_required, new_groups = [], []
         for point in points:
+            group = self.equipment_tree.get_group(point.identifier)
+            if group not in self.poll_schedulers:
+                new_groups.append(group)
             if PollScheduler.add_to_schedule(point, self.equipment_tree):
-                group = self.equipment_tree.get_group(point.identifier)
                 reschedules_required.append(group)
-                if group not in self.poll_schedulers:
-                    new_groups.append(group)
-        self.poll_schedulers.update(PollScheduler.create_poll_schedulers(self.equipment_tree, self.config.groups,
-                                                                         new_groups, len(self.poll_schedulers)))
+        if new_groups:
+            self.poll_schedulers.update(PollScheduler.create_poll_schedulers(self.equipment_tree, self.config.groups,
+                                                                             new_groups, len(self.poll_schedulers)))
         for updated_group in reschedules_required:
             self.poll_schedulers[updated_group].schedule()
 
