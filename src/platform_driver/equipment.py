@@ -197,13 +197,15 @@ class PointNode(EquipmentNode):
     @property
     def stale(self) -> bool:
         if not self.active:
-            return False
-        elif self.data['config'].stale_timeout is None:
-            return False
+            return True
         elif self.last_updated is None:
             return True
+        elif self.data['config'].stale_timeout is None:
+            return False
         else:
             now = get_aware_utc_now()
+            # TODO: Logic was duplicated to add a debug statement. Decide if a permanent info/warning is required
+            #  here or elsewhere and get rid of second check.
             if now - self.last_updated > self.data['config'].stale_timeout:
                 _log.debug(f'{self.tag} is stale --- now: {now}, last_updated: {self.last_updated},'
                            f' stale_timeout: {self.data["config"].stale_timeout}, interval: {self.polling_interval}')
