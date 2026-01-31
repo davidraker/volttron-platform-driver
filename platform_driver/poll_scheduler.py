@@ -100,6 +100,7 @@ class PollSet:
         if self.data_model is not other.data_model:
             raise ValueError(f'Cannot combine PollSets based on different data models:'
                              f' {self.data_model}, {other.data_model}.')
+        # TODO: Why can't we have polling schedules for multiple remotes -- e.g., a serial bus with many remotes.
         if self.remote is not other.remote:
             raise ValueError(f'Cannot combine PollSets based on different remotes:'
                              f' {self.remote.unique_id}, {other.remote.unique_id}.')
@@ -245,7 +246,7 @@ class StaticCyclicPollScheduler(PollScheduler):
         # Slot Plans has: {remote: {hyperperiod: {slot: WeakSet(points)}}}
         self.slot_plans: list[dict[timedelta, dict[timedelta, list[PollSet]]]] = []
 
-    def get_schedule(self):
+    def get_schedule(self, full_topics=False):
         """Return the calculated schedules to the user."""
         return_dict = defaultdict(lambda: defaultdict(dict))
         for slot_plan in self.slot_plans:
@@ -253,7 +254,10 @@ class StaticCyclicPollScheduler(PollScheduler):
                 for slot, poll_sets in plan.items():
                     poll_set = reduce(lambda ps1, ps2: ps1 | ps2, poll_sets)
                     remote = str(poll_set.remote.unique_id)
-                    return_dict[str(hyperperiod)][str(slot)][remote] = [p.split("/")[-1] for p in poll_set.points.keys()]
+                    if full_topics:
+                        return_dict[str(hyperperiod)][str(slot)][remote] = [p for p in poll_set.points.keys()]
+                    else:
+                        return_dict[str(hyperperiod)][str(slot)][remote] = [p.split("/")[-1] for p in poll_set.points.keys()]
         return return_dict
 
     @staticmethod
@@ -352,7 +356,7 @@ class StaticCyclicPollScheduler(PollScheduler):
                 self.start_all_datetime = max(self.start_all_datetime, initial_start + hyperperiod)
                 poll_generator = self.get_poll_generator(initial_start, hyperperiod, plan)
                 start, poll_set = next(poll_generator)
-                _log.info(f'Scheduled polling for {self.group}--{hyperperiod} starts at {start.time()}')
+                _log.info(f'Scheduled polling for {self.group}--{hyperperiod} starts at {start.time()} (datetime: {start})')
                 # TODO: Is hyperperiod a sufficient index for the pollers?
                 self.pollers[hyperperiod] = self.data_model.agent.core.schedule(start, self._operate_polling,
                                                                                 hyperperiod, poll_generator, poll_set)

@@ -73,7 +73,7 @@ class EquipmentNode(TopicNode):
 
     @property
     def meta_data(self) -> dict:
-        return self.data['meta_data']
+        return self.data.get('meta_data')
 
     @meta_data.setter
     def meta_data(self, value: dict):
@@ -197,13 +197,15 @@ class PointNode(EquipmentNode):
     @property
     def stale(self) -> bool:
         if not self.active:
-            return False
-        elif self.data['config'].stale_timeout is None:
-            return False
+            return True
         elif self.last_updated is None:
             return True
+        elif self.data['config'].stale_timeout is None:
+            return False
         else:
             now = get_aware_utc_now()
+            # TODO: Logic was duplicated to add a debug statement. Decide if a permanent info/warning is required
+            #  here or elsewhere and get rid of second check.
             if now - self.last_updated > self.data['config'].stale_timeout:
                 _log.debug(f'{self.tag} is stale --- now: {now}, last_updated: {self.last_updated},'
                            f' stale_timeout: {self.data["config"].stale_timeout}, interval: {self.polling_interval}')
@@ -304,14 +306,21 @@ class EquipmentTree(TopicTree):
                 new_point = PointNode(config=point_config, tag=point_config.volttron_point_name,
                                       identifier='/'.join([nid, point_config.volttron_point_name]))
                 self.add_node(new_point, parent=nid)
-                changes = True
-            elif point_config != existing.config:
-                existing.config = point_config
                 new_register = remote.interface.create_register(point_config)
                 remote.interface.insert_register(new_register, nid)
+                remote.update_metadata(point_id)
                 changes = True
+            else:
+                if point_config != existing.config:
+                    existing.config = point_config
+                    new_register = remote.interface.create_register(point_config)
+                    remote.interface.insert_register(new_register, nid)
+                    remote.update_metadata(point_id)
+                    changes = True
                 existing_points.remove(point_id)
         for removed in existing_points:
+            for poll_scheduler in self.agent.poll_schedulers.values():
+                poll_scheduler.remove_from_schedule(self.get_node(removed), self)
             self.remove_segment(removed)
             changes = True
         return changes

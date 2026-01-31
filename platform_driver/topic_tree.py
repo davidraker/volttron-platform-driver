@@ -25,7 +25,7 @@
 import json
 
 from collections import defaultdict
-from datetime import timedelta
+from datetime import datetime, timedelta
 from enum import Enum
 from pydantic import BaseModel
 from typing import Any, Union, Iterable
@@ -187,6 +187,8 @@ class TopicTree(Tree):
                 return obj.value
             if isinstance(obj, timedelta):
                 return obj.total_seconds()
+            if isinstance(obj, datetime):
+                return obj.isoformat()
             return json.JSONEncoder().default(obj)
 
         return json.dumps(self.to_dict(with_data=with_data, sort=sort, reverse=reverse), default=custom_encoder)
