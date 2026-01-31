@@ -356,7 +356,7 @@ class StaticCyclicPollScheduler(PollScheduler):
                 self.start_all_datetime = max(self.start_all_datetime, initial_start + hyperperiod)
                 poll_generator = self.get_poll_generator(initial_start, hyperperiod, plan)
                 start, poll_set = next(poll_generator)
-                _log.info(f'Scheduled polling for {self.group}--{hyperperiod} starts at {start.time()}')
+                _log.info(f'Scheduled polling for {self.group}--{hyperperiod} starts at {start.time()} (datetime: {start})')
                 # TODO: Is hyperperiod a sufficient index for the pollers?
                 self.pollers[hyperperiod] = self.data_model.agent.core.schedule(start, self._operate_polling,
                                                                                 hyperperiod, poll_generator, poll_set)
