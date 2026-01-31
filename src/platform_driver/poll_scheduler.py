@@ -246,7 +246,7 @@ class StaticCyclicPollScheduler(PollScheduler):
         # Slot Plans has: {remote: {hyperperiod: {slot: WeakSet(points)}}}
         self.slot_plans: list[dict[timedelta, dict[timedelta, list[PollSet]]]] = []
 
-    def get_schedule(self):
+    def get_schedule(self, full_topics=False):
         """Return the calculated schedules to the user."""
         return_dict = defaultdict(lambda: defaultdict(dict))
         for slot_plan in self.slot_plans:
@@ -254,7 +254,10 @@ class StaticCyclicPollScheduler(PollScheduler):
                 for slot, poll_sets in plan.items():
                     poll_set = reduce(lambda ps1, ps2: ps1 | ps2, poll_sets)
                     remote = str(poll_set.remote.unique_id)
-                    return_dict[str(hyperperiod)][str(slot)][remote] = [p.split("/")[-1] for p in poll_set.points.keys()]
+                    if full_topics:
+                        return_dict[str(hyperperiod)][str(slot)][remote] = [p for p in poll_set.points.keys()]
+                    else:
+                        return_dict[str(hyperperiod)][str(slot)][remote] = [p.split("/")[-1] for p in poll_set.points.keys()]
         return return_dict
 
     @staticmethod

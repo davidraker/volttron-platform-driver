@@ -686,8 +686,8 @@ class PlatformDriverAgent(Agent):
         return [c.identifier for c in children]
 
     @RPC.export
-    def get_poll_schedule(self):
-        return {group: scheduler.get_schedule() for group, scheduler in self.poll_schedulers.items()}
+    def get_poll_schedule(self, full_topics=False):
+        return {group: scheduler.get_schedule(full_topics) for group, scheduler in self.poll_schedulers.items()}
 
     @RPC.export
     def export_equipment_tree(self):
