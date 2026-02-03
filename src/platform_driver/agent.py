@@ -341,28 +341,31 @@ class PlatformDriverAgent(Agent):
                 )
 
     def _all_publish(self, node):
-        device_node = self.equipment_tree.get_node(node.identifier)
-        if device_node is not None and not self.equipment_tree.is_ready(device_node.identifier):
-            _log.info(f'Skipping all publish of device: {device_node.identifier}. Data is not yet ready.')
+        if not node:
+            _log.warning(f'All publish running for a device node which no longer exists.')
+        active_points = self.equipment_tree.active_points(node)
+        if not ((ready_points := self.equipment_tree.ready_points(node))
+                or (self.equipment_tree.strict_all_publishes(node.identifier))
+                    and active_points != ready_points):
+            _log.info(f'Skipping all publish of device: {node.identifier}. Data is not yet ready.')
             return
-        if self.equipment_tree.is_stale(device_node.identifier):
-            _log.warning(f'Skipping all publish of device: {device_node.identifier}. Data is stale.')
+        if not ((non_stale_points := self.equipment_tree.non_stale_points(ready_points))
+                or (self.equipment_tree.strict_all_publishes(node.identifier))
+                    and active_points != non_stale_points):
+            _log.warning(f'Skipping all publish of device: {node.identifier}. Data is stale.')
+            return
         else:
             headers = publication_headers()
-            depth_topic, breadth_topic = self.equipment_tree.get_device_topics(device_node.identifier)
-            points = self.equipment_tree.points(device_node.identifier)
-            # TODO: Consider whether we should have a way to include inactive points in all_publish,
-            #  e.g., if last_updated != None or it has a value or if not stale. Should there be choices for this?
-            points_to_publish = [p for p in points if self.equipment_tree.is_active(p.identifier)]
-            if self.equipment_tree.is_published_all_depth(device_node.identifier):
+            depth_topic, breadth_topic = self.equipment_tree.get_device_topics(node.identifier)
+            if self.equipment_tree.is_published_all_depth(node.identifier):
                 publish_wrapper(self.vip, f'{depth_topic}/all', headers=headers, message=[
-                    {p.identifier.rsplit('/', 1)[-1]: p.last_value for p in points_to_publish},
-                    {p.identifier.rsplit('/', 1)[-1]: p.meta_data for p in points_to_publish}
+                    {p.identifier.rsplit('/', 1)[-1]: p.last_value for p in non_stale_points},
+                    {p.identifier.rsplit('/', 1)[-1]: p.meta_data for p in non_stale_points}
                 ])
-            elif self.equipment_tree.is_published_all_breadth(device_node.identifier):
+            elif self.equipment_tree.is_published_all_breadth(node.identifier):
                 publish_wrapper(self.vip, f'{breadth_topic}/all', headers=headers, message=[
-                    {p.identifier.rsplit('/', 1)[-1]: p.last_value for p in points_to_publish},
-                    {p.identifier.rsplit('/', 1)[-1]: p.meta_data for p in points_to_publish}
+                    {p.identifier.rsplit('/', 1)[-1]: p.last_value for p in non_stale_points},
+                    {p.identifier.rsplit('/', 1)[-1]: p.meta_data for p in non_stale_points}
                 ])
 
     ###############

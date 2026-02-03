@@ -125,6 +125,10 @@ class EquipmentNode(TopicNode):
         return self.data['config'].publish_all_breadth
 
     @property
+    def strict_all_publishes(self) -> bool:
+        return self.data['config'].strict_all_publishes
+
+    @property
     def reservation_required_for_write(self) -> bool:
         return self.data['config'].reservation_required_for_write
 
@@ -225,6 +229,7 @@ class EquipmentTree(TopicTree):
         root_config.publish_multi_breadth = agent.config.publish_multi_breadth
         root_config.publish_all_depth = agent.config.publish_all_depth
         root_config.publish_all_breadth = agent.config.publish_all_breadth
+        root_config.strict_all_publishes = agent.config.strict_all_publishes
 
     if TYPE_CHECKING:
         def get_node(self, nid) -> EquipmentNode | DeviceNode | PointNode:
@@ -434,6 +439,9 @@ class EquipmentTree(TopicTree):
     def is_published_all_breadth(self, nid: str) -> bool:
         return self[next(self.rsearch(nid, lambda n: n.publish_all_breadth is not None))].publish_all_breadth
 
+    def strict_all_publishes(self, nid: str) -> bool:
+        return self[next(self.rsearch(nid, lambda n: n.strict_all_publishes is not None))].strict_all_publishes
+
     def is_active(self, nid: str) -> bool:
         return self[next(self.rsearch(nid, lambda n: n.active is not None))].active
 
@@ -442,6 +450,18 @@ class EquipmentTree(TopicTree):
 
     def is_stale(self, nid: str) -> bool:
         return any(p.stale for p in self.points(nid) if self.is_active(p.identifier))
+
+    def active_points(self, points: EquipmentNode | Iterable[EquipmentNode]) -> Iterable[PointNode]:
+        points = self.points(points.identifier) if isinstance(points, EquipmentNode) else points
+        return {p for p in points if self.is_active(p.identifier)}
+
+    def ready_points(self, points: EquipmentNode | Iterable[EquipmentNode]) -> Iterable[PointNode]:
+        points = self.points(points.identifier) if isinstance(points, EquipmentNode) else points
+        return {p for p in points if p.last_updated is not None}
+
+    def non_stale_points(self, points: EquipmentNode | Iterable[EquipmentNode]) -> Iterable[PointNode]:
+        points = self.points(points.identifier) if isinstance(points, EquipmentNode) else points
+        return {p for p in points if not p.stale}
 
     def update_stored_registry_config(self, nid: str):
         # TODO: This updates the registry using JSON no matter what its original saved format was. This should be fine,
