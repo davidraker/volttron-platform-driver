@@ -196,11 +196,7 @@ class PointNode(EquipmentNode):
 
     @property
     def stale(self) -> bool:
-        if not self.active:
-            return True
-        elif self.last_updated is None:
-            return True
-        elif self.data['config'].stale_timeout is None:
+        if self.data['config'].stale_timeout is None:
             return False
         else:
             now = get_aware_utc_now()
@@ -442,10 +438,10 @@ class EquipmentTree(TopicTree):
         return self[next(self.rsearch(nid, lambda n: n.active is not None))].active
 
     def is_ready(self, nid: str) -> bool:
-        return not any(p.last_updated is None for p in self.points(nid))
+        return not any(p.last_updated is None for p in self.points(nid) if self.is_active(p.identifier))
 
     def is_stale(self, nid: str) -> bool:
-        return any(p.stale for p in self.points(nid))
+        return any(p.stale for p in self.points(nid) if self.is_active(p.identifier))
 
     def update_stored_registry_config(self, nid: str):
         # TODO: This updates the registry using JSON no matter what its original saved format was. This should be fine,
