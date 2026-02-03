@@ -77,6 +77,7 @@ class PlatformDriverConfig(BaseModel):
     reservation_required_for_write_configured: bool = Field(default=False, alias='reservation_required_for_write')
     scalability_test: bool = False
     scalability_test_iterations: int = 3
+    strict_all_publishes: bool = False
     timezone: str = 'UTC'  # TODO: Timezone needs integration (is is currently used in creating register metadata). The
                            #  driver has traditionally configured timezones at the device level, but these are not used
                            #  to create the timestamps that accompany them. They should really match
