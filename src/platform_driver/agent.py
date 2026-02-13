@@ -61,7 +61,7 @@ from platform_driver.scalability_testing import ScalabilityTester
 
 # setup_logging()
 from volttron.utils.context import ClientContext as Cc
-logging.basicConfig(filename=f"{Cc.get_volttron_home()}/driver.log", level=logging.DEBUG)
+logging.basicConfig(filename=f"{Cc.get_volttron_home()}/driver.log", level=logging.DEBUG, format='%(asctime)s %(levelname)s %(name)s %(message)s')
 _log = logging.getLogger(__name__)
 __version__ = '4.0'
 
@@ -204,7 +204,8 @@ class PlatformDriverAgent(Agent):
             # Received new device node.
             interface = self._get_configured_interface(remote_config)
             # Make remote_config correct subclass of RemoteConfig.
-            remote_config = interface.INTERFACE_CONFIG_CLASS(**remote_config.model_dump())
+            remote_config = interface.INTERFACE_CONFIG_CLASS(
+                **(interface.default_config.copy() | remote_config.model_dump()))
             registry_config = config_dict.pop('registry_config', [])
             registry_config = registry_config if registry_config is not None else []
             dev_config = DeviceConfig(**config_dict)
@@ -262,6 +263,10 @@ class PlatformDriverAgent(Agent):
             driver_agent = DriverAgent(remote_config, self.core, self.equipment_tree, self.scalability_test,
                                        self.config.timezone, unique_remote_id, self.vip)
             self.equipment_tree.remotes[unique_remote_id] = driver_agent
+        elif driver_agent.config != remote_config:
+            _log.warning(f'Remote configuration for equipment "{equipment_name}" does not match configuration'
+                         f' of shared remote "{unique_remote_id}. Check configurations for consistency or consider'
+                         f' setting "allow_duplicate_remotes == True".')
         return driver_agent
 
     def _get_configured_interface(self, remote_config):
@@ -270,6 +275,11 @@ class PlatformDriverAgent(Agent):
             try:
                 module = remote_config.module
                 interface = BaseInterface.get_interface_subclass(remote_config.driver_type, module)
+                if interface.default_config is None:
+                    try:
+                        interface.default_config = self.vip.config.get(f'interfaces/{remote_config.driver_type}')
+                    except KeyError:
+                        interface.default_config = {}
             except (AttributeError, ModuleNotFoundError, ValueError) as e:
                 raise ValueError(f'Unable to configure driver with interface: {remote_config.driver_type}.'
                                  f' This interface type is currently unknown or not installed.'
@@ -297,13 +307,14 @@ class PlatformDriverAgent(Agent):
     def _update_polling_schedules(self, points):
         reschedules_required, new_groups = [], []
         for point in points:
+            group = self.equipment_tree.get_group(point.identifier)
+            if group not in self.poll_schedulers:
+                new_groups.append(group)
             if PollScheduler.add_to_schedule(point, self.equipment_tree):
-                group = self.equipment_tree.get_group(point.identifier)
                 reschedules_required.append(group)
-                if group not in self.poll_schedulers:
-                    new_groups.append(group)
-        self.poll_schedulers.update(PollScheduler.create_poll_schedulers(self.equipment_tree, self.config.groups,
-                                                                         new_groups, len(self.poll_schedulers)))
+        if new_groups:
+            self.poll_schedulers.update(PollScheduler.create_poll_schedulers(self.equipment_tree, self.config.groups,
+                                                                             new_groups, len(self.poll_schedulers)))
         for updated_group in reschedules_required:
             self.poll_schedulers[updated_group].schedule()
 
@@ -330,24 +341,31 @@ class PlatformDriverAgent(Agent):
                 )
 
     def _all_publish(self, node):
-        device_node = self.equipment_tree.get_node(node.identifier)
-        if not self.equipment_tree.is_ready(device_node.identifier):
-            _log.info(f'Skipping all publish of device: {device_node.identifier}. Data is not yet ready.')
-        if self.equipment_tree.is_stale(device_node.identifier):
-            _log.warning(f'Skipping all publish of device: {device_node.identifier}. Data is stale.')
+        if not node:
+            _log.warning(f'All publish running for a device node which no longer exists.')
+        active_points = self.equipment_tree.active_points(node)
+        if not ((ready_points := self.equipment_tree.ready_points(node))
+                or (self.equipment_tree.strict_all_publishes(node.identifier))
+                    and active_points != ready_points):
+            _log.info(f'Skipping all publish of device: {node.identifier}. Data is not yet ready.')
+            return
+        if not ((non_stale_points := self.equipment_tree.non_stale_points(ready_points))
+                or (self.equipment_tree.strict_all_publishes(node.identifier))
+                    and active_points != non_stale_points):
+            _log.warning(f'Skipping all publish of device: {node.identifier}. Data is stale.')
+            return
         else:
             headers = publication_headers()
-            depth_topic, breadth_topic = self.equipment_tree.get_device_topics(device_node.identifier)
-            points = self.equipment_tree.points(device_node.identifier)
-            if self.equipment_tree.is_published_all_depth(device_node.identifier):
+            depth_topic, breadth_topic = self.equipment_tree.get_device_topics(node.identifier)
+            if self.equipment_tree.is_published_all_depth(node.identifier):
                 publish_wrapper(self.vip, f'{depth_topic}/all', headers=headers, message=[
-                    {p.identifier.rsplit('/', 1)[-1]: p.last_value for p in points},
-                    {p.identifier.rsplit('/', 1)[-1]: p.meta_data for p in points}
+                    {p.identifier.rsplit('/', 1)[-1]: p.last_value for p in non_stale_points},
+                    {p.identifier.rsplit('/', 1)[-1]: p.meta_data for p in non_stale_points}
                 ])
-            elif self.equipment_tree.is_published_all_breadth(device_node.identifier):
+            elif self.equipment_tree.is_published_all_breadth(node.identifier):
                 publish_wrapper(self.vip, f'{breadth_topic}/all', headers=headers, message=[
-                    {p.identifier.rsplit('/', 1)[-1]: p.last_value for p in points},
-                    {p.identifier.rsplit('/', 1)[-1]: p.meta_data for p in points}
+                    {p.identifier.rsplit('/', 1)[-1]: p.last_value for p in non_stale_points},
+                    {p.identifier.rsplit('/', 1)[-1]: p.meta_data for p in non_stale_points}
                 ])
 
     ###############
@@ -486,11 +504,14 @@ class PlatformDriverAgent(Agent):
     def _last(points: Iterable[PointNode], value: bool, updated: bool):
         if value:
             if updated:
-                return_dict = {p.topic: {'value': p.last_value, 'updated': p.last_updated} for p in points}
+                return_dict = {p.topic: {
+                    'value': p.last_value,
+                    'updated': (p.last_updated.isoformat() if p.last_updated else None)} for p in points
+                }
             else:
                 return_dict = {p.topic: p.last_value for p in points}
         else:
-            return_dict = {p.topic: p.last_updated for p in points}
+            return_dict = {p.topic: (p.last_updated.isoformat() if p.last_updated else None) for p in points}
         return return_dict
 
     #-----------
@@ -510,7 +531,7 @@ class PlatformDriverAgent(Agent):
     def _start(self, points: Iterable[PointNode]) -> None:
         updates_required = []
         for p in points:
-            if p.active:
+            if self.equipment_tree.is_active(p.identifier):
                 continue
             else:
                 p.active = True
@@ -532,7 +553,7 @@ class PlatformDriverAgent(Agent):
 
     def _stop(self, points: Iterable[PointNode]) -> None:
         for p in points:
-            if not p.active:
+            if not self.equipment_tree.is_active(p.identifier):
                 continue
             else:
                 p.active = False
@@ -662,14 +683,14 @@ class PlatformDriverAgent(Agent):
         if regex:
             children = [c for c in children if regex.search(c)]
         if active:
-            children = [c for c in children if c.active]
+            children = [c for c in children if self.equipment_tree.is_active(c.identifier)]
         if enabled:
             children = [c for c in children if c.enabled]
         return [c.identifier for c in children]
 
     @RPC.export
-    def get_poll_schedule(self):
-        return {group: scheduler.get_schedule() for group, scheduler in self.poll_schedulers.items()}
+    def get_poll_schedule(self, full_topics=False):
+        return {group: scheduler.get_schedule(full_topics) for group, scheduler in self.poll_schedulers.items()}
 
     @RPC.export
     def export_equipment_tree(self):
@@ -956,11 +977,14 @@ class PlatformDriverAgent(Agent):
         """
         Sends heartbeat to all devices
         """
-        # TODO: Make sure this is being called with the full topic.
+        # TODO: This should send to all remotes, collect tasks, and then log tasks after the fact.
         # TODO: Move this into the PollScheduler with configurable (per device) set of points and intervals (per-point).
         _log.debug("sending heartbeat")
         for remote in self.equipment_tree.remotes.values():
-            remote.heart_beat()
+            try:
+                remote.heart_beat()
+            except (Exception, gevent.Timeout) as e:
+                _log.warning(f'Failed to set heart_beat point on remote: {remote.unique_id} -- {e}.')
 
     @RPC.export
     def revert_point(self, path: str, point_name: str, **kwargs):

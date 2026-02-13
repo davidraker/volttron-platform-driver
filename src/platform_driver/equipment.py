@@ -73,7 +73,7 @@ class EquipmentNode(TopicNode):
 
     @property
     def meta_data(self) -> dict:
-        return self.data['meta_data']
+        return self.data.get('meta_data')
 
     @meta_data.setter
     def meta_data(self, value: dict):
@@ -123,6 +123,10 @@ class EquipmentNode(TopicNode):
     @property
     def publish_all_breadth(self) -> bool:
         return self.data['config'].publish_all_breadth
+
+    @property
+    def strict_all_publishes(self) -> bool:
+        return self.data['config'].strict_all_publishes
 
     @property
     def reservation_required_for_write(self) -> bool:
@@ -196,14 +200,12 @@ class PointNode(EquipmentNode):
 
     @property
     def stale(self) -> bool:
-        if not self.active:
+        if self.data['config'].stale_timeout is None:
             return False
-        elif self.data['config'].stale_timeout is None:
-            return False
-        elif self.last_updated is None:
-            return True
         else:
             now = get_aware_utc_now()
+            # TODO: Logic was duplicated to add a debug statement. Decide if a permanent info/warning is required
+            #  here or elsewhere and get rid of second check.
             if now - self.last_updated > self.data['config'].stale_timeout:
                 _log.debug(f'{self.tag} is stale --- now: {now}, last_updated: {self.last_updated},'
                            f' stale_timeout: {self.data["config"].stale_timeout}, interval: {self.polling_interval}')
@@ -227,6 +229,7 @@ class EquipmentTree(TopicTree):
         root_config.publish_multi_breadth = agent.config.publish_multi_breadth
         root_config.publish_all_depth = agent.config.publish_all_depth
         root_config.publish_all_breadth = agent.config.publish_all_breadth
+        root_config.strict_all_publishes = agent.config.strict_all_publishes
 
     if TYPE_CHECKING:
         def get_node(self, nid) -> EquipmentNode | DeviceNode | PointNode:
@@ -263,6 +266,8 @@ class EquipmentTree(TopicTree):
 
         # Set up the device node itself.
         try:
+            # TODO: It would be possible to allow inheritance of dev_config properties from something set on parent,
+            #  similar to how registry configs are handled.
             device_node = DeviceNode(config=dev_config, driver=driver_agent, tag=device_name, identifier=device_topic)
             device_node.data['registry_name'] = self.set_registry_name(device_node.identifier)
             self.add_node(device_node, parent=parent)
@@ -302,14 +307,21 @@ class EquipmentTree(TopicTree):
                 new_point = PointNode(config=point_config, tag=point_config.volttron_point_name,
                                       identifier='/'.join([nid, point_config.volttron_point_name]))
                 self.add_node(new_point, parent=nid)
-                changes = True
-            elif point_config != existing.config:
-                existing.config = point_config
                 new_register = remote.interface.create_register(point_config)
                 remote.interface.insert_register(new_register, nid)
+                remote.update_metadata(point_id)
                 changes = True
+            else:
+                if point_config != existing.config:
+                    existing.config = point_config
+                    new_register = remote.interface.create_register(point_config)
+                    remote.interface.insert_register(new_register, nid)
+                    remote.update_metadata(point_id)
+                    changes = True
                 existing_points.remove(point_id)
         for removed in existing_points:
+            for poll_scheduler in self.agent.poll_schedulers.values():
+                poll_scheduler.remove_from_schedule(self.get_node(removed), self)
             self.remove_segment(removed)
             changes = True
         return changes
@@ -427,14 +439,29 @@ class EquipmentTree(TopicTree):
     def is_published_all_breadth(self, nid: str) -> bool:
         return self[next(self.rsearch(nid, lambda n: n.publish_all_breadth is not None))].publish_all_breadth
 
+    def strict_all_publishes(self, nid: str) -> bool:
+        return self[next(self.rsearch(nid, lambda n: n.strict_all_publishes is not None))].strict_all_publishes
+
     def is_active(self, nid: str) -> bool:
         return self[next(self.rsearch(nid, lambda n: n.active is not None))].active
 
     def is_ready(self, nid: str) -> bool:
-        return not any(p.last_updated is None for p in self.points(nid))
+        return not any(p.last_updated is None for p in self.points(nid) if self.is_active(p.identifier))
 
     def is_stale(self, nid: str) -> bool:
-        return any(p.stale for p in self.points(nid))
+        return any(p.stale for p in self.points(nid) if self.is_active(p.identifier))
+
+    def active_points(self, points: EquipmentNode | Iterable[EquipmentNode]) -> Iterable[PointNode]:
+        points = self.points(points.identifier) if isinstance(points, EquipmentNode) else points
+        return {p for p in points if self.is_active(p.identifier)}
+
+    def ready_points(self, points: EquipmentNode | Iterable[EquipmentNode]) -> Iterable[PointNode]:
+        points = self.points(points.identifier) if isinstance(points, EquipmentNode) else points
+        return {p for p in points if p.last_updated is not None}
+
+    def non_stale_points(self, points: EquipmentNode | Iterable[EquipmentNode]) -> Iterable[PointNode]:
+        points = self.points(points.identifier) if isinstance(points, EquipmentNode) else points
+        return {p for p in points if not p.stale}
 
     def update_stored_registry_config(self, nid: str):
         # TODO: This updates the registry using JSON no matter what its original saved format was. This should be fine,
