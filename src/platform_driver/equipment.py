@@ -26,18 +26,26 @@ import gevent
 import logging
 
 from datetime import datetime
+from importlib.metadata import distribution, PackageNotFoundError
 from treelib.exceptions import DuplicatedNodeIdError
 from typing import Any, cast, Iterable, Optional, TYPE_CHECKING, Union
 from weakref import WeakValueDictionary
 
-from volttron.client.known_identities import CONFIGURATION_STORE
-from volttron.driver.base.driver import DriverAgent
-from volttron.driver.base.config import DataSource, DeviceConfig, EquipmentConfig, PointConfig
-from volttron.utils import get_aware_utc_now, parse_json_config
+try:
+    distribution('volttron-core')
+    from volttron.client.known_identities import CONFIGURATION_STORE
+    from volttron.driver.base.driver import DriverAgent
+    from volttron.driver.base.config import DataSource, DeviceConfig, EquipmentConfig, PointConfig
+    from volttron.utils import get_aware_utc_now, parse_json_config
+except PackageNotFoundError:
+    from volttron.platform.agent.known_identities import CONFIGURATION_STORE
+    from volttron.driver.base.driver import DriverAgent
+    from volttron.driver.base.config import DataSource, DeviceConfig, EquipmentConfig, PointConfig
+    from volttron.platform.agent.utils import get_aware_utc_now, parse_json_config
 
-from platform_driver.overrides import OverrideError
-from platform_driver.reservations import ReservationLockError
-from platform_driver.topic_tree import TopicNode, TopicTree
+from .overrides import OverrideError
+from .reservations import ReservationLockError
+from .topic_tree import TopicNode, TopicTree
 
 
 _log = logging.getLogger(__name__)

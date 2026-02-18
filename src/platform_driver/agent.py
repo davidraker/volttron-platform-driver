@@ -31,33 +31,48 @@ import sys
 
 from collections import defaultdict
 from datetime import datetime
+from importlib.metadata import distribution, PackageNotFoundError
 from pkgutil import iter_modules
 from pydantic import ValidationError
 from typing import Any, Iterable, Sequence, Set
 
+try:
+    distribution('volttron-core')
+    # from volttron.client.commands.install_agents import InstallRuntimeError # TODO Used in commented add_interface.
+    from volttron.client.known_identities import PLATFORM_DRIVER
+    from volttron.client.logs import setup_logging
+    from volttron.client.messaging.health import STATUS_BAD
+    from volttron.client.messaging.utils import normtopic
+    from volttron.client.vip.agent import Agent
+    from volttron.client.vip.agent.subsystems.rpc import RPC
+    from volttron.driver.base.driver import BaseInterface, DriverAgent
+    from volttron.driver.base.driver_locks import configure_publish_lock, setup_socket_lock
+    from volttron.driver.base.config import DeviceConfig, EquipmentConfig, PointConfig, RemoteConfig
+    from volttron.driver.base.utils import publication_headers, publish_wrapper
+    from volttron.utils import format_timestamp, get_aware_utc_now, load_config, vip_main
+    from volttron.utils.jsonrpc import RemoteError
+    from volttron.utils.scheduling import periodic
+except PackageNotFoundError:
+    from volttron.platform.agent.known_identities import PLATFORM_DRIVER
+    from volttron.platform.messaging.health import STATUS_BAD
+    from volttron.platform.messaging.utils import normtopic
+    from volttron.platform.vip.agent import Agent
+    from volttron.platform.vip.agent.subsystems.rpc import RPC
+    from volttron.driver.base.driver import BaseInterface, DriverAgent
+    from volttron.driver.base.driver_locks import configure_publish_lock, setup_socket_lock
+    from volttron.driver.base.config import DeviceConfig, EquipmentConfig, PointConfig, RemoteConfig
+    from volttron.driver.base.utils import publication_headers, publish_wrapper
+    from volttron.platform.agent.utils import format_timestamp, get_aware_utc_now, load_config, setup_logging, vip_main
+    from volttron.platform.jsonrpc import RemoteError
+    from volttron.platform.scheduling import periodic
 
-# from volttron.client.commands.install_agents import InstallRuntimeError # TODO Used in commented add_interface.
-from volttron.client.known_identities import PLATFORM_DRIVER
-from volttron.client.logs import setup_logging
-from volttron.client.messaging.health import STATUS_BAD
-from volttron.client.messaging.utils import normtopic
-from volttron.client.vip.agent import Agent
-from volttron.client.vip.agent.subsystems.rpc import RPC
-from volttron.driver.base.driver import BaseInterface, DriverAgent
-from volttron.driver.base.driver_locks import configure_publish_lock, setup_socket_lock
-from volttron.driver.base.config import DeviceConfig, EquipmentConfig, PointConfig, RemoteConfig
-from volttron.driver.base.utils import publication_headers, publish_wrapper
-from volttron.utils import format_timestamp, get_aware_utc_now, load_config, vip_main
-from volttron.utils.jsonrpc import RemoteError
-from volttron.utils.scheduling import periodic
-
-from platform_driver.config import PlatformDriverConfig
-from platform_driver.constants import *
-from platform_driver.equipment import DeviceNode, EquipmentNode, EquipmentTree, PointNode
-from platform_driver.overrides import OverrideManager
-from platform_driver.poll_scheduler import PollScheduler
-from platform_driver.reservations import ReservationManager
-from platform_driver.scalability_testing import ScalabilityTester
+from .config import PlatformDriverConfig
+from .constants import *
+from .equipment import DeviceNode, EquipmentNode, EquipmentTree, PointNode
+from .overrides import OverrideManager
+from .poll_scheduler import PollScheduler
+from .reservations import ReservationManager
+from .scalability_testing import ScalabilityTester
 
 # setup_logging()
 from volttron.utils.context import ClientContext as Cc

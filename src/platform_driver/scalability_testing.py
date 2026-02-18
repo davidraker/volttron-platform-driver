@@ -26,9 +26,13 @@ import logging
 import sys
 
 from datetime import datetime
+from importlib.metadata import distribution, PackageNotFoundError
 
-from volttron.utils.math_utils import mean, stdev
-
+try:
+    distribution('volttron-core')
+    from volttron.utils.math_utils import mean, stdev
+except PackageNotFoundError:
+    from volttron.platform.agent.math_utils import mean, stdev
 
 _log = logging.getLogger(__name__)
 
