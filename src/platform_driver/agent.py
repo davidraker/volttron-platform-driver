@@ -74,9 +74,12 @@ from .poll_scheduler import PollScheduler
 from .reservations import ReservationManager
 from .scalability_testing import ScalabilityTester
 
-# setup_logging()
-from volttron.utils.context import ClientContext as Cc
-logging.basicConfig(filename=f"{Cc.get_volttron_home()}/driver.log", level=logging.DEBUG, format='%(asctime)s %(levelname)s %(name)s %(message)s')
+try:
+    distribution('volttron-core')
+    from volttron.utils.context import ClientContext as Cc
+    logging.basicConfig(filename=f"{Cc.get_volttron_home()}/driver.log", level=logging.DEBUG, format='%(asctime)s %(levelname)s %(name)s %(message)s')
+except PackageNotFoundError:
+    setup_logging()
 _log = logging.getLogger(__name__)
 __version__ = '4.0'
 

@@ -25,23 +25,34 @@ import logging
 import os
 import sys
 
+from importlib.metadata import requires
 from setuptools import setup, find_packages
-from subprocess import check_call, CalledProcessError
+from subprocess import check_call
+
+try:
+    import tomli
+except ModuleNotFoundError:
+    check_call(["pip", "install", "tomli"])
+    import tomli
 
 _log = logging.getLogger(__name__)
 
+# Install Base Driver library without dependencies to avoid pulling in volttron-core.
+check_call(['pip', 'install', '--no-deps', 'volttron-lib-base-driver>=2.0.0rc2'])
 
-try:
-    check_call(['git', 'clone',
-                'https://github.com/eclipse-volttron/volttron-lib-base-driver',
-                'volttron-lib-base-driver'])
-    os.chdir('volttron-lib-base-driver')
-    check_call(['python', 'setup.py', '--no-user-cfg', 'bdist_wheel'])
-    check_call(['pip', 'install', 'dist/' + os.listdir('dist')[0]])
-    os.chdir('..')
-except (FileNotFoundError, IndexError, CalledProcessError) as e:
-    _log.error(f'Unable to install VOLTTRON Base Driver: {str(e)}.'
-               f' Platform Driver Agent will not work until this library has been installed.')
+# Discover dependencies from metadata in the newly installed volttron-lib-base-driver package.
+exclude_packages = ['python', 'volttron-core', 'volttron-lib-base-driver']
+base_deps = [f'{d}{v.strip("()")}' for d, v in [x.split(' ') for x in requires('volttron-lib-base-driver')]
+             if d not in exclude_packages]
+
+# Discover dependencies of Platform Driver Agent from pyproject.toml.
+with open('pyproject.toml', 'rb') as f:
+    ppt = tomli.load(f)
+agent_deps = [f'{d}{v}' for d, v in ppt['tool']['poetry'].get('dependencies', {}).items() if d not in exclude_packages]
+
+# Install all dependencies.
+deps = base_deps + agent_deps
+check_call(['pip', 'install', *deps])
 
 MAIN_MODULE = 'agent'
 
