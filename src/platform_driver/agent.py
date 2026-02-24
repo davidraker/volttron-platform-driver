@@ -533,6 +533,29 @@ class PlatformDriverAgent(Agent):
             return_dict = {p.topic: (p.last_updated.isoformat() if p.last_updated else None) for p in points}
         return return_dict
 
+    @RPC.export
+    def call(self, method: str, topic: str | Sequence[str] | Set[str] = None, regex: str = None,
+             *args, **kwargs) -> tuple[dict, dict]:
+        # Find set of points to query and organize by remote:
+        query_plan = self.build_query_plan(topic, regex)
+        return self._call(query_plan, method, *args, **kwargs)
+
+    @RPC.export
+    def semantic_call(self, method: str, query: str, *args, **kwargs) -> tuple[dict, dict]:
+        exact_matches = self.semantic_query(query)
+        query_plan = self.build_query_plan(exact_matches)
+        return self._call(query_plan, method, *args, **kwargs)
+
+    @staticmethod
+    def _call(query_plan: dict[DriverAgent, Set[PointNode]], method: str, *args, **kwargs):
+        """Make query for selected points on each remote"""
+        results, errors = {}, {}
+        for (remote, point_set) in query_plan.items():
+            q_return_values, q_return_errors = remote.call(method, [p.identifier for p in point_set], *args, **kwargs)
+            results.update(q_return_values)
+            errors.update(q_return_errors)
+        return results, errors
+
     #-----------
     # UI Support
     #-----------
