@@ -294,6 +294,46 @@ class EquipmentTree(TopicTree):
                              f' correct registers are created.')
         return device_node
 
+    # def update_equipment(self, nid: str, dev_config: DeviceConfig | None, remote: DriverAgent | None,
+    #                      registry_config: list[PointConfig]) -> bool:
+    #     from .poll_scheduler import PollScheduler
+    #     changes = False
+    #     dev_node: DeviceNode = self.get_node(nid)
+    #     if dev_node and dev_config is not None:
+    #         if dev_config != dev_node.config:
+    #             changes = True
+    #             dev_node.config = dev_config
+    #         if remote is not None and dev_node.remote != remote:
+    #             dev_node.data['remote'] = remote
+    #             changes = True
+    #     existing_points = {p.identifier for p in self.points(nid)}
+    #     while registry_config:
+    #         point_config = registry_config.pop()
+    #         point_id = '/'.join([nid, point_config.volttron_point_name])
+    #         existing = self.get_node(point_id)
+    #         if point_id not in existing_points:
+    #             new_point = PointNode(config=point_config, tag=point_config.volttron_point_name,
+    #                                   identifier='/'.join([nid, point_config.volttron_point_name]))
+    #             self.add_node(new_point, parent=nid)
+    #             new_register = remote.interface.create_register(point_config)
+    #             remote.interface.insert_register(new_register, nid)
+    #             remote.update_metadata(point_id)
+    #             changes = True
+    #         else:
+    #             if point_config != existing.config:
+    #                 PollScheduler.remove_from_schedule(existing, self)
+    #                 existing.config = point_config
+    #                 new_register = remote.interface.create_register(point_config)
+    #                 remote.interface.insert_register(new_register, nid)
+    #                 remote.update_metadata(point_id)
+    #                 changes = True
+    #             existing_points.remove(point_id)
+    #     for removed in existing_points:  # Points remaining in existing points are absent from new configuration.
+    #         PollScheduler.remove_from_schedule(self.get_node(removed), self)
+    #         self.remove_segment(removed)
+    #         changes = True
+    #     return changes
+
     def update_equipment(self, nid: str, dev_config: DeviceConfig | None, remote: DriverAgent | None,
                          registry_config: list[PointConfig]) -> bool:
         changes = False
@@ -326,9 +366,7 @@ class EquipmentTree(TopicTree):
                     remote.update_metadata(point_id)
                     changes = True
                 existing_points.remove(point_id)
-        for removed in existing_points:
-            for poll_scheduler in self.agent.poll_schedulers.values():
-                poll_scheduler.remove_from_schedule(self.get_node(removed), self)
+        for removed in existing_points:  # Points remaining in existing points are absent from new configuration.
             self.remove_segment(removed)
             changes = True
         return changes

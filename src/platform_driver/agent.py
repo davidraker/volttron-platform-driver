@@ -306,6 +306,23 @@ class PlatformDriverAgent(Agent):
             self.interface_classes[driver_type] = interface
         return interface
 
+    # def _update_equipment(self, config_name: str, _, contents: dict) -> bool:
+    #     """Callback for updating equipment configuration."""
+    #     remote_config, dev_config, registry_config = self._separate_equipment_configs(contents)
+    #     if dev_config:
+    #         try:
+    #             remote = self._get_or_create_remote(config_name, remote_config, dev_config.allow_duplicate_remotes)
+    #         except ValueError as e:
+    #             _log.warning(f'Skipping configuration of equipment: {config_name} after encountering error --- {e}')
+    #             return False
+    #     else:
+    #         remote = None
+    #     is_changed = self.equipment_tree.update_equipment(config_name, dev_config, remote, registry_config)
+    #     if is_changed:
+    #         points = self.equipment_tree.points(config_name)
+    #         self._update_polling_schedules(points)
+    #     return is_changed
+
     def _update_equipment(self, config_name: str, _, contents: dict) -> bool:
         """Callback for updating equipment configuration."""
         remote_config, dev_config, registry_config = self._separate_equipment_configs(contents)
@@ -317,23 +334,44 @@ class PlatformDriverAgent(Agent):
                 return False
         else:
             remote = None
-        is_changed = self.equipment_tree.update_equipment(config_name, dev_config, remote, registry_config)
-        if is_changed:
-            points = self.equipment_tree.points(config_name)
-            self._update_polling_schedules(points)
-        return is_changed
+        old_points = self.equipment_tree.points(config_name)
+        changed = self.equipment_tree.update_equipment(config_name, dev_config, remote, registry_config)
+        new_points = self.equipment_tree.points(config_name)
+        self._update_polling_schedules(new_points, old_points)
+        return changed
 
-    def _update_polling_schedules(self, points):
+    def _update_polling_schedules(self, new_points: Iterable[PointNode], old_points: Iterable[PointNode]):
         reschedules_required, new_groups = [], []
-        for point in points:
+        removed_points = set(old_points) - set(new_points)
+        for point in new_points:
             group = self.equipment_tree.get_group(point.identifier)
             if group not in self.poll_schedulers:
                 new_groups.append(group)
-            if PollScheduler.add_to_schedule(point, self.equipment_tree):
+                poll_scheduler = PollScheduler
+            else:
+                poll_scheduler = self.poll_schedulers[group]
+            if poll_scheduler.add_to_schedule(point, self.equipment_tree):
                 reschedules_required.append(group)
         if new_groups:
             self.poll_schedulers.update(PollScheduler.create_poll_schedulers(self.equipment_tree, self.config.groups,
                                                                              new_groups, len(self.poll_schedulers)))
+        # import gc
+        # for point in removed_points:
+        #     del point
+        # gc.collect()
+        #     group = self.equipment_tree.get_group(point.identifier)
+        #     self.poll_schedulers[group].remove_from_schedule(point, self.equipment_tree)
+        _log.debug('@@@@@@@@ AT END OF UPDATE POLLING SCHEDULES:')
+        _log.debug('@@@@@@@@ POLL SETS IS: ')
+        _log.debug({k: {id(l): {m: [p for p in x.points] for m, x in w.items()} for l, w in v.items()} for k, v in
+                    PollScheduler.poll_sets.items()})
+        for group, poll_scheduler in self.poll_schedulers.items():
+            _log.debug(f'SLOT PLAN FOR {group} IS:')
+            _log.debug([{f'hp: {k.total_seconds()}': {
+                f'slot: {l.total_seconds()}': [[p for p in ps.points.keys()] for ps in w] for l, w in v.items()} for k, v in
+                         sp.items()} for sp in poll_scheduler.slot_plans])
+
+        _log.debug(f'@@@@@@@ RESCHEDULES REQUIRED IS: {reschedules_required}')
         for updated_group in reschedules_required:
             self.poll_schedulers[updated_group].schedule()
 
@@ -577,7 +615,7 @@ class PlatformDriverAgent(Agent):
             else:
                 p.active = False
                 group = self.equipment_tree.get_group(p.identifier)
-                self.poll_schedulers[group].remove_from_schedule(p)
+                self.poll_schedulers[group].remove_from_schedule(p.identifier)
         # TODO: Add reschedule_all_on_update option and reschedule all poll_schedulers when true.
 
     @RPC.export

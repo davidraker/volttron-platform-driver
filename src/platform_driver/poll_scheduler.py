@@ -89,16 +89,18 @@ class PollSet:
             self.multi_depth[device_depth].add(point_depth)
 
         if self.data_model.is_published_multi_breadth(point.identifier):
-            self.multi_breadth[device_breadth].add(point.identifier)
+            self.multi_breadth[device_breadth].add(point.identifier)  # TODO: Should this not be adding point_breadth?
 
     def  _remove_from_publish_setup(self, point: PointNode):
         point_depth, point_breadth = self.data_model.get_point_topics(point.identifier)
         device_depth, device_breadth = self.data_model.get_device_topics(point.identifier)
         self.single_depth.discard(point_depth)
         self.single_breadth.discard((point_depth, point_breadth))
-        self.multi_depth[device_depth].discard(point_depth)
+        _log.debug(f'@@@@@@@@@ REMOVE {point.identifier} from {self.multi_depth}')
+        self.multi_depth[device_depth].discard(point.identifier)
         if not self.multi_depth[device_depth]:
             self.multi_depth.pop(device_depth, None)
+        _log.debug(f'@@@@@@@@@ REMOVED?: {self.multi_depth}')
         self.multi_breadth[device_breadth].discard(point.identifier)
         if not self.multi_breadth[device_breadth]:
             self.multi_breadth.pop(device_breadth, None)
@@ -139,6 +141,7 @@ class PollScheduler(metaclass=abc.ABCMeta):
         self.pollers: dict[Any, ScheduledEvent] = {}
 
     def schedule(self):
+        _log.debug('@@@@@@ IN POLL_SCHEDULER.SCHEDULE')
         self._prepare_to_schedule()
         self._schedule_polling()
 
@@ -204,15 +207,24 @@ class PollScheduler(metaclass=abc.ABCMeta):
     @classmethod
     def add_to_schedule(cls, point: PointNode, data_model: EquipmentTree):
         """Add a poll to the schedule, without complete rescheduling if possible"""
+        _log.debug('@@@@@@@@ POLL SETS IS: ')
+        _log.debug({k: {id(l): {m: [p for p in x.points] for m, x in w.items()} for l, w in v.items()} for k, v in cls.poll_sets.items()})
         group = data_model.get_group(point.identifier)
+        _log.debug(f'@@@@@@@@ GROUP "{group}" IS IN POLL_SETS: {group in cls.poll_sets}')
         remote = data_model.get_remote(point.identifier)
+        _log.debug(f'@@@@@@@@ REMOTE "{remote.unique_id}" IS IN GROUP: {remote in cls.poll_sets.get(group, {})}')
+        _log.debug(f'@@@@@@@@ POLL SET HAS THESE INTERVALS FOR REMOTE: {list(cls.poll_sets[group][remote].keys())}')
         interval = data_model.get_polling_interval(point.identifier)
+        _log.debug(f'@@@@@@@@ INTERVAL "{interval}" IS IN REMOTE: {interval in cls.poll_sets.get(group, {}).get(remote, {})}')
         reschedule_required = (group not in cls.poll_sets
                                or remote not in cls.poll_sets[group]
                                or interval not in cls.poll_sets[group][remote])
         if remote not in cls.poll_sets[group].keys():
             cls.poll_sets[group][remote] = defaultdict(lambda: PollSet(data_model, remote))
         cls.poll_sets[group][remote][interval].add(point)
+        _log.debug('@@@@@@@@ POLL SETS (AFTER ADD_TO_SCHEDULE IS: ')
+        _log.debug({k: {id(l): {m: [p for p in x.points] for m, x in w.items()} for l, w in v.items()} for k, v in
+                    cls.poll_sets.items()})
         return reschedule_required
 
     @classmethod
@@ -252,6 +264,12 @@ class StaticCyclicPollScheduler(PollScheduler):
         super(StaticCyclicPollScheduler, self).__init__(*args, **kwargs)
         # Slot Plans has: {remote: {hyperperiod: {slot: WeakSet(points)}}}
         self.slot_plans: list[dict[timedelta, dict[timedelta, list[PollSet]]]] = []
+
+    def add_to_schedule(self, point: PointNode, data_model: EquipmentTree):
+        reschedule_required = super().add_to_schedule(point, data_model)
+        _log.debug('@@@@@@@ AT END OF ADD_TO_SCHEDULE, SLOT PLAN IS: ')
+        _log.debug([{f'hp: {k.total_seconds()}': {f'slot: {l.total_seconds()}': [[p for p in ps.points.keys()] for ps in w] for l, w in v.items()} for k, v in sp.items()} for sp in self.slot_plans])
+        return reschedule_required
 
     def get_schedule(self, full_topics=False):
         """Return the calculated schedules to the user."""
@@ -336,6 +354,11 @@ class StaticCyclicPollScheduler(PollScheduler):
             yield p
 
     def _prepare_to_schedule(self):
+        _log.debug('SLOT PLANS BEFORE:')
+        _log.debug([{f'hp: {k.total_seconds()}': {f'slot: {l.total_seconds()}': [[p for p in ps.points.keys()] for ps in w] for l, w in v.items()} for k, v in sp.items()} for sp in self.slot_plans])
+        self.slot_plans.clear()
+        _log.debug('SLOT PLANS CLEARED:')
+        _log.debug([{f'hp: {k.total_seconds()}': {f'slot: {l.total_seconds()}': [[p for p in ps.points.keys()] for ps in w] for l, w in v.items()} for k, v in sp.items()} for sp in self.slot_plans])
         group_poll_sets = self.poll_sets[self.group]
         if self.group_config.parallel_subgroups:
             for parallel_index, (remote, remote_poll_sets) in enumerate(group_poll_sets.items()):
@@ -349,6 +372,8 @@ class StaticCyclicPollScheduler(PollScheduler):
                 for interval, poll_set in remote_poll_sets.items():
                     input_dict[interval][remote].append(poll_set)
             self.slot_plans.append(self._find_slots(input_dict))
+        _log.debug('SLOT PLANS AFTER:')
+        _log.debug([{f'hp: {k.total_seconds()}': {f'slot: {l.total_seconds()}': [[p for p in ps.points.keys()] for ps in w] for l, w in v.items()} for k, v in sp.items()} for sp in self.slot_plans])
 
     def _schedule_polling(self):
         # TODO: How to fully ensure min_polling_interval? Nothing yet prevents collisions between individual polls in
@@ -365,25 +390,49 @@ class StaticCyclicPollScheduler(PollScheduler):
                 start, poll_set = next(poll_generator)
                 _log.info(f'Scheduled polling for {self.group}--{hyperperiod} starts at {start.time()} (datetime: {start})')
                 # TODO: Is hyperperiod a sufficient index for the pollers?
+                if old_scheduler := self.pollers.get(hyperperiod):
+                    _log.debug(f'Cancelled poll scheuled @ {old_scheduler.args[3].isoformat()} for hyperperiod: {old_scheduler.args[0]}, points: {old_scheduler.args[2].points.keys()}')
+                    old_scheduler.cancel()
                 self.pollers[hyperperiod] = self.data_model.agent.core.schedule(start, self._operate_polling,
-                                                                                hyperperiod, poll_generator, poll_set)
+                                                                                hyperperiod, poll_generator, poll_set, get_aware_utc_now())
 
-    def _operate_polling(self, poller_id, poll_generator, current_poll_set):
+    # def _operate_polling(self, poller_id, poll_generator, initial: tuple[datetime, PollSet] = None):
+    #     next_start, next_poll_set = initial if initial else next(poll_generator)
+    #
+    #     # Find the current and next polls where the next poll is the first to still be in the future
+    #     #  (This assures that if the host has gone to sleep, the poll will still be the most up to date):
+    #     now = get_aware_utc_now()
+    #     while next_start <= now + min(next_poll_set.keys()): # TODO: PollSet does not have keys!
+    #         # TODO: If this takes too long for long pauses, call get_poll_generator again, instead.
+    #         _log.warning(f'Skipping polls from {next_start} to {now} to catch up to the current time.')
+    #         next_start, next_poll_set = next(poll_generator)
+    #     _log.debug(f'@@@@@@@@@@ OPERATE POLLING FOR: {poller_id} @ {now} --- POINTS: {list(next_poll_set.points.keys())}, MULTI_DEPTH: {list(next_poll_set.multi_depth.keys())}')
+    #     # Schedule next poll:
+    #     if next_poll_set.points:
+    #         _log.debug(f'@@@@@@@@@ SCHEDULING NEXT @ {next_start}')
+    #         self.pollers[poller_id] = self.data_model.agent.core.schedule(next_start, self._operate_polling, poller_id,
+    #                                                                       poll_generator)
+    #     else:
+    #         _log.info(f'Stopping polling loop of {poller_id} points on {next_poll_set.remote.unique_id}.'
+    #                   f' There are no points in this request set to poll.')
+    #     next_poll_set.remote.poll_data(next_poll_set)
+
+    def _operate_polling(self, poller_id, poll_generator, current_poll_set, when_scheduled):
         next_start, next_poll_set = next(poll_generator)
-
         # Find the current and next polls where the next poll is the first to still be in the future
         #  (This assures that if the host has gone to sleep, the poll will still be the most up to date):
         now = get_aware_utc_now()
         while next_start <= now:
             # TODO: If this takes too long for long pauses, call get_poll_generator again, instead.
-            _log.warning(f'Skipping polls from {next_start} to {now} to catch up to the current time.')
+            _log.warning(f'Skipping polls from {next_start.isoformat()} to {now.isoformat()} to catch up to the current time.')
             current_poll_set = next_poll_set
             next_start, next_poll_set = next(poll_generator)
-
+        _log.debug(f'@@@@@@@@@@ OPERATE POLLING FOR: {poller_id} SCHEDULED AT @ {when_scheduled.isoformat()} FOR TIME {now.isoformat()} --- POINTS: {list(current_poll_set.points.keys())}, MULTI_DEPTH: {list(current_poll_set.multi_depth.keys())}')
         # Schedule next poll:
         if next_poll_set.points:
+            _log.debug(f'@@@@@@@@@ SCHEDULING NEXT @ {next_start.isoformat()}')
             self.pollers[poller_id] = self.data_model.agent.core.schedule(next_start, self._operate_polling, poller_id,
-                                                                          poll_generator, next_poll_set)
+                                                                          poll_generator, next_poll_set, now)
         else:
             _log.info(f'Stopping polling loop of {poller_id} points on {next_poll_set.remote.unique_id}.'
                       f' There are no points in this request set to poll.')
