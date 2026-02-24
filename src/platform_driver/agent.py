@@ -288,21 +288,22 @@ class PlatformDriverAgent(Agent):
         return driver_agent
 
     def _get_configured_interface(self, remote_config):
-        interface = self.interface_classes.get(remote_config.driver_type)
+        driver_type = 'fake' if remote_config.driver_type == 'fakedriver' else remote_config.driver_type
+        interface = self.interface_classes.get(driver_type)
         if not interface:
             try:
                 module = remote_config.module
-                interface = BaseInterface.get_interface_subclass(remote_config.driver_type, module)
+                interface = BaseInterface.get_interface_subclass(driver_type, module)
                 if interface.default_config is None:
                     try:
-                        interface.default_config = self.vip.config.get(f'interfaces/{remote_config.driver_type}')
+                        interface.default_config = self.vip.config.get(f'interfaces/{driver_type}')
                     except KeyError:
                         interface.default_config = {}
             except (AttributeError, ModuleNotFoundError, ValueError) as e:
-                raise ValueError(f'Unable to configure driver with interface: {remote_config.driver_type}.'
+                raise ValueError(f'Unable to configure driver with interface: {driver_type}.'
                                  f' This interface type is currently unknown or not installed.'
                                  f' Received exception: {e}')
-            self.interface_classes[remote_config.driver_type] = interface
+            self.interface_classes[driver_type] = interface
         return interface
 
     def _update_equipment(self, config_name: str, _, contents: dict) -> bool:
