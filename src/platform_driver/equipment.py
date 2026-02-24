@@ -60,7 +60,6 @@ class EquipmentNode(TopicNode):
 
     @property
     def active(self) -> bool:
-        # TODO: Make this inherit from parents or use et.rsearch when accessing it.
         return self.data['config'].active
 
     @active.setter
