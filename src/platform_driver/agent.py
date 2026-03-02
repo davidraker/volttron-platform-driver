@@ -617,7 +617,7 @@ class PlatformDriverAgent(Agent):
             else:
                 p.active = False
                 group = self.equipment_tree.get_group(p.identifier)
-                self.poll_schedulers[group].remove_from_schedule(p)
+                self.poll_schedulers[group].remove_from_schedule(p, self.equipment_tree)
         # TODO: Add reschedule_all_on_update option and reschedule all poll_schedulers when true.
 
     @RPC.export
