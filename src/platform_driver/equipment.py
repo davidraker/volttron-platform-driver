@@ -259,8 +259,8 @@ class EquipmentTree(TopicTree):
             #  What if the registry is a json dictionary in the device config?
             return reg_name[len('config://'):] if len(reg_name) >= len('config://') else None
 
-    def add_device(self, device_topic: str, dev_config: DeviceConfig, driver_agent: DriverAgent,
-                   registry_config: list[PointConfig]):
+    def add_device(self, device_topic: str, dev_config: DeviceConfig, remote: DriverAgent,
+                   registry_configs: Iterable[PointConfig]):
         """
         Add Device
         Adds a device node to the equipment tree. Also adds any necessary ancestor topic nodes and child point nodes.
@@ -275,7 +275,7 @@ class EquipmentTree(TopicTree):
         try:
             # TODO: It would be possible to allow inheritance of dev_config properties from something set on parent,
             #  similar to how registry configs are handled.
-            device_node = DeviceNode(config=dev_config, driver=driver_agent, tag=device_name, identifier=device_topic)
+            device_node = DeviceNode(config=dev_config, driver=remote, tag=device_name, identifier=device_topic)
             device_node.data['registry_name'] = self.set_registry_name(device_node.identifier)
             self.add_node(device_node, parent=parent)
         except DuplicatedNodeIdError:
@@ -283,7 +283,7 @@ class EquipmentTree(TopicTree):
             device_node = self.get_node(device_topic)
 
         # Set up any point nodes which are children of this device.
-        for point_config in registry_config:
+        for point_config in registry_configs:
             try:
                 node = PointNode(config=point_config, tag=point_config.volttron_point_name,
                                  identifier='/'.join([device_topic, point_config.volttron_point_name]))

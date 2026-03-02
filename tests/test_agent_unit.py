@@ -339,8 +339,8 @@ class TestPDAConfigureNewEquipment:
                                                           dev_config.allow_duplicate_remotes)
         PDA.equipment_tree.add_device.assert_called_once_with(device_topic=equipment_name,
                                                               dev_config=dev_config,
-                                                              driver_agent=driver,
-                                                              registry_config=registry_config)
+                                                              remote=driver,
+                                                              registry_configs=registry_config)
         driver.add_equipment.assert_called_once_with(device_node)
         assert result == True
 

@@ -220,19 +220,16 @@ class PlatformDriverAgent(Agent):
         # Set up All Publishes:
         self._start_all_publishes()
 
-    def _separate_equipment_configs(self, config_dict) -> tuple[RemoteConfig, DeviceConfig | None, list[PointConfig]]:
+    def _separate_equipment_configs(self, config_dict: dict[str, Any]
+                                    ) -> tuple[RemoteConfig, DeviceConfig | None, list[dict[str, Any]]]:
         # Separate remote_config and make adjustments for possible config version 1:
-        remote_config = config_dict.pop('remote_config', config_dict.pop('driver_config', {}))
-        remote_config['driver_type'] = remote_config.get('driver_type', config_dict.pop('driver_type', None))
-        # TODO: Where to put heart_beat_point? Is that remote or equipment specific?
-        remote_config = RemoteConfig(**remote_config)
-
+        remote_config_dict: dict[str, Any] = config_dict.pop('remote_config', config_dict.pop('driver_config', {}))
+        remote_config_dict['driver_type'] = remote_config_dict.get('driver_type', config_dict.pop('driver_type', None))
+        remote_config_dict['heart_beat_point'] = remote_config_dict.get('heart_beat_point',
+                                                              config_dict.pop('heart_beat_point', None))
+        remote_config: RemoteConfig = RemoteConfig(**remote_config_dict)
         if remote_config.driver_type:
             # Received new device node.
-            interface = self._get_configured_interface(remote_config)
-            # Make remote_config correct subclass of RemoteConfig.
-            remote_config = interface.INTERFACE_CONFIG_CLASS(
-                **(interface.default_config.copy() | remote_config.model_dump()))
             registry_config = config_dict.pop('registry_config', [])
             registry_config = registry_config if registry_config is not None else []
             dev_config = DeviceConfig(**config_dict)
@@ -244,7 +241,7 @@ class PlatformDriverAgent(Agent):
                 for k, v in dev_config.equipment_specific_fields.items():
                     if not reg.get(k):
                         reg[k] = v
-                point_configs.append(interface.REGISTER_CONFIG_CLASS(**reg))
+                point_configs.append(reg)
 
         else:
             dev_config, point_configs = None, []
@@ -259,13 +256,14 @@ class PlatformDriverAgent(Agent):
             else:
                 return self._update_equipment(equipment_name, 'UPDATE', contents)
         try:
-            remote_config, dev_config, registry_config = self._separate_equipment_configs(contents)
+            remote_config, dev_config, registry_configs = self._separate_equipment_configs(contents)
             if dev_config:
                 # Received new device node.
-                driver = self._get_or_create_remote(equipment_name, remote_config, dev_config.allow_duplicate_remotes)
+                remote = self._get_or_create_remote(equipment_name, remote_config, dev_config.allow_duplicate_remotes)
+                validated_reg_configs = (remote.interface.REGISTER_CONFIG_CLASS(**r) for r in registry_configs)
                 device_node = self.equipment_tree.add_device(device_topic=equipment_name, dev_config=dev_config,
-                                                             driver_agent=driver, registry_config=registry_config)
-                driver.add_equipment(device_node)
+                                                             remote=remote, registry_configs=validated_reg_configs)
+                remote.add_equipment(device_node)
             else: # Received new or updated segment node.
                 equipment_config = EquipmentConfig(**contents)
                 self.equipment_tree.add_segment(equipment_name, equipment_config)
@@ -277,7 +275,8 @@ class PlatformDriverAgent(Agent):
             _log.warning(f'Skipping configuration of equipment: {equipment_name} after encountering error --- {e}')
             return False
 
-    def _get_or_create_remote(self, equipment_name: str, remote_config: RemoteConfig, allow_duplicate_remotes):
+    def _get_or_create_remote(self, equipment_name: str, remote_config: RemoteConfig, allow_duplicate_remotes: bool,
+                              is_update: bool = False):
         interface = self._get_configured_interface(remote_config)
         allow_duplicate_remotes = True if (allow_duplicate_remotes or self.config.allow_duplicate_remotes) else False
         if not allow_duplicate_remotes:
@@ -285,18 +284,22 @@ class PlatformDriverAgent(Agent):
         else:
             unique_remote_id = BaseInterface.unique_remote_id(equipment_name, remote_config)
 
-        driver_agent = self.equipment_tree.remotes.get(unique_remote_id)
-        if not driver_agent:
-            driver_agent = DriverAgent(remote_config, self.core, self.equipment_tree, self.scalability_test,
+        remote = self.equipment_tree.remotes.get(unique_remote_id)
+        if not remote:
+            remote = DriverAgent(remote_config, self.core, self.equipment_tree, self.scalability_test,
                                        self.config.timezone, unique_remote_id, self.vip)
-            self.equipment_tree.remotes[unique_remote_id] = driver_agent
-        elif driver_agent.config != remote_config:
+            self.equipment_tree.remotes[unique_remote_id] = remote
+        elif not is_update and remote.config != remote.interface.INTERFACE_CONFIG_CLASS(**remote_config.model_dump()):
+            # TODO: Can we support some settings being different between two groupings on same remote?
+            #       e.g., two groups with different cov_lifetime intervals?
+            #       (This doesn't affect remote itself, but is an interface specific configuration.)
+            #       Can this use case already be accomodated using groups somehow?
             _log.warning(f'Remote configuration for equipment "{equipment_name}" does not match configuration'
                          f' of shared remote "{unique_remote_id}. Check configurations for consistency or consider'
                          f' setting "allow_duplicate_remotes == True".')
-        return driver_agent
+        return remote
 
-    def _get_configured_interface(self, remote_config):
+    def _get_configured_interface(self, remote_config: RemoteConfig):
         driver_type = 'fake' if remote_config.driver_type == 'fakedriver' else remote_config.driver_type
         interface = self.interface_classes.get(driver_type)
         if not interface:
@@ -306,7 +309,7 @@ class PlatformDriverAgent(Agent):
                 if interface.default_config is None:
                     try:
                         interface.default_config = self.vip.config.get(f'interfaces/{driver_type}')
-                    except KeyError:
+                    except KeyError:  # TODO: Can this even raise KeyError? It will be None or and Attribute Error, no?
                         interface.default_config = {}
             except (AttributeError, ModuleNotFoundError, ValueError) as e:
                 raise ValueError(f'Unable to configure driver with interface: {driver_type}.'
@@ -317,16 +320,21 @@ class PlatformDriverAgent(Agent):
 
     def _update_equipment(self, config_name: str, _, contents: dict) -> bool:
         """Callback for updating equipment configuration."""
-        remote_config, dev_config, registry_config = self._separate_equipment_configs(contents)
+        remote_config, dev_config, registry_configs = self._separate_equipment_configs(contents)
         if dev_config:
             try:
-                remote = self._get_or_create_remote(config_name, remote_config, dev_config.allow_duplicate_remotes)
+                remote = self._get_or_create_remote(config_name, remote_config, dev_config.allow_duplicate_remotes, True)
             except ValueError as e:
                 _log.warning(f'Skipping configuration of equipment: {config_name} after encountering error --- {e}')
                 return False
+            if remote.config != remote.interface.INTERFACE_CONFIG_CLASS(**remote_config.model_dump()):
+                # TODO: How do we reconcile potential differences with other users of this remote?
+                #       Currently, we are just going to change things out from underneath them.
+                pass
         else:
             remote = None
-        is_changed = self.equipment_tree.update_equipment(config_name, dev_config, remote, registry_config)
+        validated_reg_configs = [remote.interface.REGISTER_CONFIG_CLASS(**r) for r in registry_configs]
+        is_changed = self.equipment_tree.update_equipment(config_name, dev_config, remote, validated_reg_configs)
         if is_changed:
             points = self.equipment_tree.points(config_name)
             self._update_polling_schedules(points)
