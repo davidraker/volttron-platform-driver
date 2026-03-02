@@ -59,7 +59,7 @@ Sphinx = ">=4.5.0,<5.0.0"
 sphinx-rtd-theme = ">=1.0.0,<2.0.0"
 
 [tool.poetry.scripts]
-vdrv = "scripts.vdrv"  # TODO: Does this need to be moved into the src folder, or the scripts folder included above?
+vdrv = "scripts.vdrv.vdrv"
 volttron-platform-driver = "platform_driver.agent:main"
 
 [tool.yapf]

@@ -21,24 +21,21 @@
 #
 # ===----------------------------------------------------------------------===
 # }}}
-import logging
 import os
 import sys
 
 from importlib.metadata import requires
 from setuptools import setup, find_packages
-from subprocess import check_call
+from subprocess import run
 
 try:
     import tomli
 except ModuleNotFoundError:
-    check_call(["pip", "install", "tomli"])
+    run(["pip", "install", "tomli"], check=True)
     import tomli
 
-_log = logging.getLogger(__name__)
-
 # Install Base Driver library without dependencies to avoid pulling in volttron-core.
-check_call(['pip', 'install', '--no-deps', 'volttron-lib-base-driver>=2.0.0rc2'])
+run(['pip', 'install', '--no-deps', '/home/dmr/Projects/volttron/modular/drivers/base'], check=True)  # 'volttron-lib-base-driver>=2.0.0rc2'
 
 # Discover dependencies from metadata in the newly installed volttron-lib-base-driver package.
 exclude_packages = ['python', 'volttron-core', 'volttron-lib-base-driver']
@@ -52,7 +49,10 @@ agent_deps = [f'{d}{v}' for d, v in ppt['tool']['poetry'].get('dependencies', {}
 
 # Install all dependencies.
 deps = base_deps + agent_deps
-check_call(['pip', 'install', *deps])
+run(['pip', 'install', *deps], check=True)
+
+# Install vdrv
+run(['python', 'setup_vdrv.py', 'install'])
 
 MAIN_MODULE = 'agent'
 
@@ -81,7 +81,9 @@ setup(
     version=__version__,
     packages=packages,
     package_dir={'': 'src'},
-    entry_points={"setuptools.installation": [f"eggsecutable = {agent_module}:main"]},
+    entry_points={
+        "setuptools.installation": [f"eggsecutable = {agent_module}:main"]
+    },
     classifiers=[
         "Development Status :: 3 - Alpha",
         "Intended Audience :: Developers",

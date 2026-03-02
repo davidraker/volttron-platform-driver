@@ -24,7 +24,6 @@
 
 import gevent
 import logging
-# import os  # TODO: Used in commented add_interface.
 import re
 import subprocess
 import sys
@@ -32,13 +31,22 @@ import sys
 from collections import defaultdict
 from datetime import datetime
 from importlib.metadata import distribution, PackageNotFoundError
+from pathlib import Path
 from pkgutil import iter_modules
 from pydantic import ValidationError
 from typing import Any, Iterable, Sequence, Set
 
 try:
+    import tomllib  # Will not be available below 3.11. Need to pip install tomli.
+except ModuleNotFoundError:
+    import tomli as tomllib
+
+try:
     distribution('volttron-core')
-    # from volttron.client.commands.install_agents import InstallRuntimeError # TODO Used in commented add_interface.
+    from argparse import Namespace
+    from contextlib import redirect_stdout
+    from io import StringIO
+    from volttron.client.commands.install_parser import install_lib_vctl
     from volttron.client.known_identities import PLATFORM_DRIVER
     from volttron.client.logs import setup_logging
     from volttron.client.messaging.health import STATUS_BAD
@@ -53,6 +61,7 @@ try:
     from volttron.utils.jsonrpc import RemoteError
     from volttron.utils.scheduling import periodic
 except PackageNotFoundError:
+    from importlib.metadata import requires
     from volttron.platform.agent.known_identities import PLATFORM_DRIVER
     from volttron.platform.messaging.health import STATUS_BAD
     from volttron.platform.messaging.utils import normtopic
@@ -683,24 +692,46 @@ class PlatformDriverAgent(Agent):
         return self._remove_equipment(node_topic, None, None, leave_disconnected)
 
     @RPC.export
-    def add_interface(self, interface_name: str, local_path: str = None) -> bool:
-        raise NotImplementedError('add_interface is not yet implemented.')
-        # ### ADAPTED FROM volttron.client.install_agents.install_agent_vctl
-        # if os.path.isdir(interface_name):
-        #     pass # TODO: Install from directory (see install_agent_directory in volttron.client.install_agents.py)
-        # elif interface_name.endswith(".whl") and not os.path.isfile(interface_name):
-        #     raise InstallRuntimeError(f"Invalid wheel file {interface_name}")
-        #     # TODO: Seems like there should be another elif after this.
-        # else:
-        #     interface_package = self._interface_package_from_short_name(interface_name)
-        #     sp_result = subprocess.run([sys.executable, '-m', 'pip', 'install', interface_package])
-        # # TODO: What should this be returning?  If error_dict, how to get this?s
-        # return False if sp_result.returncode else True
+    def add_interface(self, interface_name: str, force: bool = False, pre_release: bool = False) -> bool:
+        # TODO: vdrv might want to get the absolute path before calling this, if it is a path.
+        interface_path = Path(interface_name)
+        if interface_path.is_dir():
+            with open(interface_path / 'pyproject.toml', 'rb') as f:
+                ppt = tomllib.load(f)
+            package_name, install_path = ppt['tool']['poetry']['name'], str(interface_path)
+        elif interface_path.is_file() and interface_path.suffix == ".whl":
+            package_name, install_path = str(interface_path.stem).split('-')[0], str(interface_path)
+        else:  # Use package name to get it from PyPI.
+            package_name = install_path = self._interface_package_from_short_name(interface_name)
+        try:
+            distribution('volttron-core')
+            arguments = Namespace(install_path=install_path, force=force, pre_release=pre_release)
+            try:
+                with redirect_stdout(st_out := StringIO()):
+                    install_lib_vctl(arguments)
+                success = True if st_out.getvalue().startswith('Installed') else False
+            except ValueError as e:
+                _log.warning(f'Failed to install interface "{interface_name}": {e}')
+                success = False
+        except PackageNotFoundError:  # Monolithic does not have install-lib. Handle this manually.
+            try:
+                subprocess.run(['pip', 'install', '--no-deps', str(install_path)],
+                               check=True, capture_output=True)
+                exclude_packages = ['python', 'volttron-core', 'volttron-lib-base-driver']
+                if deps := [f'{d}{v.strip("()")}' for d, v in [x.split(' ') for x in requires(package_name)]
+                            if d not in exclude_packages]:
+                    subprocess.run((['pip', 'install', *deps]), check=True, capture_output=True)
+                success = True
+            except subprocess.CalledProcessError as e:
+                _log.warning(f'Failed to install interface "{interface_name}": {e.stderr}')
+                success = False
+        if success:
+            _log.info(f'Successfully installed {interface_name} driver interface.')
+        return success
 
     @RPC.export
     def list_interfaces(self) -> list[str]:
         """Return list of all installed driver interfaces."""
-        # TODO: Needs to be updated to use poetry.
         try:
             from volttron.driver import interfaces
             return [i.name for i in iter_modules(interfaces.__path__)]
@@ -709,10 +740,15 @@ class PlatformDriverAgent(Agent):
 
     @RPC.export
     def remove_interface(self, interface_name: str) -> bool:
-        # TODO: Needs to be updated to use poetry.
         interface_package = self._interface_package_from_short_name(interface_name)
-        sp_result = subprocess.run([sys.executable, '-m', 'pip', 'uninstall', interface_package])
-        return False if sp_result.returncode else True
+        try:
+            distribution('volttron-core')
+            subprocess.run(['poetry', '--directory', 'remove', interface_package], capture_output=True)
+        except PackageNotFoundError:
+            subprocess.run([sys.executable, '-m', 'pip', 'uninstall', interface_package, '--no-input'],
+                           capture_output=True)
+        sp_result = subprocess.run([sys.executable, '-m', 'pip', 'show', interface_package], capture_output=True)
+        return True if sp_result.returncode else False
 
     @RPC.export
     def list_topics(self, topic: str, regex: str = None,
