@@ -35,7 +35,7 @@ except ModuleNotFoundError:
     import tomli
 
 # Install Base Driver library without dependencies to avoid pulling in volttron-core.
-run(['pip', 'install', '--no-deps', '/home/dmr/Projects/volttron/modular/drivers/base'], check=True)  # 'volttron-lib-base-driver>=2.0.0rc2'
+run(['pip', 'install', '--no-deps', 'volttron-lib-base-driver>=2.0.0rc2'], check=True)
 
 # Discover dependencies from metadata in the newly installed volttron-lib-base-driver package.
 exclude_packages = ['python', 'volttron-core', 'volttron-lib-base-driver']
