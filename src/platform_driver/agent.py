@@ -726,8 +726,7 @@ class PlatformDriverAgent(Agent):
                 subprocess.run(['pip', 'install', '--no-deps', str(install_path)],
                                check=True, capture_output=True)
                 exclude_packages = ['python', 'volttron-core', 'volttron-lib-base-driver']
-                if deps := [f'{d}{v.strip("()")}' for d, v in [x.split(' ') for x in requires(package_name)]
-                            if d not in exclude_packages]:
+                if deps := [d for d in requires(package_name) if d.split(' ')[0] not in exclude_packages]:
                     subprocess.run((['pip', 'install', *deps]), check=True, capture_output=True)
                 success = True
             except subprocess.CalledProcessError as e:
