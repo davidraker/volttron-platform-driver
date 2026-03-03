@@ -23,21 +23,25 @@
 # }}}
 
 import json
+import logging
+import re
 
 from collections import defaultdict
 from datetime import datetime, timedelta
 from enum import Enum
+from importlib.metadata import distribution, PackageNotFoundError
+from os.path import normpath
 from pydantic import BaseModel
 from typing import Any, Union, Iterable
 from treelib import Tree, Node
 from treelib.exceptions import DuplicatedNodeIdError, NodeIDAbsentError
 
-from volttron.client.known_identities import CONFIGURATION_STORE
+try:
+    distribution('volttron-core')
+    from volttron.client.known_identities import CONFIGURATION_STORE
+except PackageNotFoundError:
+    from volttron.platform.agent.known_identities import CONFIGURATION_STORE
 
-import re
-from os.path import normpath
-
-import logging
 _log = logging.getLogger(__name__)
 
 

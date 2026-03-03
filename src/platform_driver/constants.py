@@ -21,8 +21,13 @@
 #
 # ===----------------------------------------------------------------------===
 # }}}
+from importlib.metadata import distribution, PackageNotFoundError
 
-from volttron.client.messaging import topics as t
+try:
+    distribution('volttron-core')
+    from volttron.client.messaging import topics as t
+except PackageNotFoundError:
+    from volttron.platform.messaging import topics as t
 
 VALUE_RESPONSE_PREFIX = t.ACTUATOR_VALUE()
 REVERT_POINT_RESPONSE_PREFIX = t.ACTUATOR_REVERTED_POINT()

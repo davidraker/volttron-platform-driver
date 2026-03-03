@@ -26,12 +26,19 @@ import fnmatch
 import logging
 
 from datetime import datetime, timedelta
+from importlib.metadata import distribution, PackageNotFoundError
 
-from volttron.client.vip.agent.core import ScheduledEvent
-from volttron.driver.base.interfaces import DriverInterfaceError
-from volttron.utils import format_timestamp, get_aware_utc_now, parse_timestamp_string
-from volttron.utils.jsonapi import dumps, loads
-
+try:
+    distribution('volttron-core')
+    from volttron.client.vip.agent.core import ScheduledEvent
+    from volttron.driver.base.interfaces import DriverInterfaceError
+    from volttron.utils import format_timestamp, get_aware_utc_now, parse_timestamp_string
+    from volttron.utils.jsonapi import dumps, loads
+except PackageNotFoundError:
+    from volttron.platform.vip.agent.core import ScheduledEvent
+    from volttron.driver.base.interfaces import DriverInterfaceError
+    from volttron.platform.agent.utils import format_timestamp, get_aware_utc_now, parse_timestamp_string
+    from volttron.platform.jsonapi import dumps, loads
 
 _log = logging.getLogger(__name__)
 

@@ -30,11 +30,17 @@ from base64 import b64encode
 from collections import defaultdict, namedtuple
 from copy import deepcopy
 from datetime import timedelta
+from importlib.metadata import distribution, PackageNotFoundError
 from pickle import dumps, loads
 from tzlocal import get_localzone
 
-from volttron.client.messaging import topics
-from volttron.utils import get_aware_utc_now, format_timestamp, parse_timestamp_string
+try:
+    distribution('volttron-core')
+    from volttron.client.messaging import topics
+    from volttron.utils import get_aware_utc_now, format_timestamp, parse_timestamp_string
+except PackageNotFoundError:
+    from volttron.platform.messaging import topics
+    from volttron.platform.agent.utils import get_aware_utc_now, format_timestamp, parse_timestamp_string
 
 PRIORITY_HIGH = 'HIGH'
 PRIORITY_LOW = 'LOW'

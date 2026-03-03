@@ -24,44 +24,71 @@
 
 import gevent
 import logging
-# import os  # TODO: Used in commented add_interface.
 import re
 import subprocess
 import sys
 
 from collections import defaultdict
 from datetime import datetime
+from importlib.metadata import distribution, PackageNotFoundError
+from pathlib import Path
 from pkgutil import iter_modules
 from pydantic import ValidationError
 from typing import Any, Iterable, Sequence, Set
 
+try:
+    import tomllib  # Will not be available below 3.11. Need to pip install tomli.
+except ModuleNotFoundError:
+    import tomli as tomllib
 
-# from volttron.client.commands.install_agents import InstallRuntimeError # TODO Used in commented add_interface.
-from volttron.client.known_identities import PLATFORM_DRIVER
-from volttron.client.logs import setup_logging
-from volttron.client.messaging.health import STATUS_BAD
-from volttron.client.messaging.utils import normtopic
-from volttron.client.vip.agent import Agent
-from volttron.client.vip.agent.subsystems.rpc import RPC
-from volttron.driver.base.driver import BaseInterface, DriverAgent
-from volttron.driver.base.driver_locks import configure_publish_lock, setup_socket_lock
-from volttron.driver.base.config import DeviceConfig, EquipmentConfig, PointConfig, RemoteConfig
-from volttron.driver.base.utils import publication_headers, publish_wrapper
-from volttron.utils import format_timestamp, get_aware_utc_now, load_config, vip_main
-from volttron.utils.jsonrpc import RemoteError
-from volttron.utils.scheduling import periodic
+try:
+    distribution('volttron-core')
+    from argparse import Namespace
+    from contextlib import redirect_stdout
+    from io import StringIO
+    from volttron.client.commands.install_parser import install_lib_vctl
+    from volttron.client.known_identities import PLATFORM_DRIVER
+    from volttron.client.logs import setup_logging
+    from volttron.client.messaging.health import STATUS_BAD
+    from volttron.client.messaging.utils import normtopic
+    from volttron.client.vip.agent import Agent
+    from volttron.client.vip.agent.subsystems.rpc import RPC
+    from volttron.driver.base.driver import BaseInterface, DriverAgent
+    from volttron.driver.base.driver_locks import configure_publish_lock, setup_socket_lock
+    from volttron.driver.base.config import DeviceConfig, EquipmentConfig, PointConfig, RemoteConfig
+    from volttron.driver.base.utils import publication_headers, publish_wrapper
+    from volttron.utils import format_timestamp, get_aware_utc_now, load_config, vip_main
+    from volttron.utils.jsonrpc import RemoteError
+    from volttron.utils.scheduling import periodic
+except PackageNotFoundError:
+    from importlib.metadata import requires
+    from volttron.platform.agent.known_identities import PLATFORM_DRIVER
+    from volttron.platform.messaging.health import STATUS_BAD
+    from volttron.platform.messaging.utils import normtopic
+    from volttron.platform.vip.agent import Agent
+    from volttron.platform.vip.agent.subsystems.rpc import RPC
+    from volttron.driver.base.driver import BaseInterface, DriverAgent
+    from volttron.driver.base.driver_locks import configure_publish_lock, setup_socket_lock
+    from volttron.driver.base.config import DeviceConfig, EquipmentConfig, PointConfig, RemoteConfig
+    from volttron.driver.base.utils import publication_headers, publish_wrapper
+    from volttron.platform.agent.utils import format_timestamp, get_aware_utc_now, load_config, setup_logging, vip_main
+    from volttron.platform.jsonrpc import RemoteError
+    from volttron.platform.scheduling import periodic
 
-from platform_driver.config import PlatformDriverConfig
-from platform_driver.constants import *
-from platform_driver.equipment import DeviceNode, EquipmentNode, EquipmentTree, PointNode
-from platform_driver.overrides import OverrideManager
-from platform_driver.poll_scheduler import PollScheduler
-from platform_driver.reservations import ReservationManager
-from platform_driver.scalability_testing import ScalabilityTester
+from .config import PlatformDriverConfig
+from .constants import *
+from .equipment import DeviceNode, EquipmentNode, EquipmentTree, PointNode
+from .overrides import OverrideManager
+from .poll_scheduler import PollScheduler
+from .reservations import ReservationManager
+from .scalability_testing import ScalabilityTester
 
-# setup_logging()
-from volttron.utils.context import ClientContext as Cc
-logging.basicConfig(filename=f"{Cc.get_volttron_home()}/driver.log", level=logging.DEBUG, format='%(asctime)s %(levelname)s %(name)s %(message)s')
+try:
+    distribution('volttron-core')
+    from volttron.utils.context import ClientContext as Cc
+    logging.basicConfig(filename=f"{Cc.get_volttron_home()}/driver.log", level=logging.DEBUG, format='%(asctime)s %(levelname)s %(name)s %(message)s')
+except PackageNotFoundError:
+    setup_logging()
 _log = logging.getLogger(__name__)
 __version__ = '4.0'
 
@@ -193,19 +220,16 @@ class PlatformDriverAgent(Agent):
         # Set up All Publishes:
         self._start_all_publishes()
 
-    def _separate_equipment_configs(self, config_dict) -> tuple[RemoteConfig, DeviceConfig | None, list[PointConfig]]:
+    def _separate_equipment_configs(self, config_dict: dict[str, Any]
+                                    ) -> tuple[RemoteConfig, DeviceConfig | None, list[dict[str, Any]]]:
         # Separate remote_config and make adjustments for possible config version 1:
-        remote_config = config_dict.pop('remote_config', config_dict.pop('driver_config', {}))
-        remote_config['driver_type'] = remote_config.get('driver_type', config_dict.pop('driver_type', None))
-        # TODO: Where to put heart_beat_point? Is that remote or equipment specific?
-        remote_config = RemoteConfig(**remote_config)
-
+        remote_config_dict: dict[str, Any] = config_dict.pop('remote_config', config_dict.pop('driver_config', {}))
+        remote_config_dict['driver_type'] = remote_config_dict.get('driver_type', config_dict.pop('driver_type', None))
+        remote_config_dict['heart_beat_point'] = remote_config_dict.get('heart_beat_point',
+                                                              config_dict.pop('heart_beat_point', None))
+        remote_config: RemoteConfig = RemoteConfig(**remote_config_dict)
         if remote_config.driver_type:
             # Received new device node.
-            interface = self._get_configured_interface(remote_config)
-            # Make remote_config correct subclass of RemoteConfig.
-            remote_config = interface.INTERFACE_CONFIG_CLASS(
-                **(interface.default_config.copy() | remote_config.model_dump()))
             registry_config = config_dict.pop('registry_config', [])
             registry_config = registry_config if registry_config is not None else []
             dev_config = DeviceConfig(**config_dict)
@@ -217,7 +241,7 @@ class PlatformDriverAgent(Agent):
                 for k, v in dev_config.equipment_specific_fields.items():
                     if not reg.get(k):
                         reg[k] = v
-                point_configs.append(interface.REGISTER_CONFIG_CLASS(**reg))
+                point_configs.append(reg)
 
         else:
             dev_config, point_configs = None, []
@@ -232,13 +256,14 @@ class PlatformDriverAgent(Agent):
             else:
                 return self._update_equipment(equipment_name, 'UPDATE', contents)
         try:
-            remote_config, dev_config, registry_config = self._separate_equipment_configs(contents)
+            remote_config, dev_config, registry_configs = self._separate_equipment_configs(contents)
             if dev_config:
                 # Received new device node.
-                driver = self._get_or_create_remote(equipment_name, remote_config, dev_config.allow_duplicate_remotes)
+                remote = self._get_or_create_remote(equipment_name, remote_config, dev_config.allow_duplicate_remotes)
+                validated_reg_configs = (remote.interface.REGISTER_CONFIG_CLASS(**r) for r in registry_configs)
                 device_node = self.equipment_tree.add_device(device_topic=equipment_name, dev_config=dev_config,
-                                                             driver_agent=driver, registry_config=registry_config)
-                driver.add_equipment(device_node)
+                                                             remote=remote, registry_configs=validated_reg_configs)
+                remote.add_equipment(device_node)
             else: # Received new or updated segment node.
                 equipment_config = EquipmentConfig(**contents)
                 self.equipment_tree.add_segment(equipment_name, equipment_config)
@@ -250,7 +275,8 @@ class PlatformDriverAgent(Agent):
             _log.warning(f'Skipping configuration of equipment: {equipment_name} after encountering error --- {e}')
             return False
 
-    def _get_or_create_remote(self, equipment_name: str, remote_config: RemoteConfig, allow_duplicate_remotes):
+    def _get_or_create_remote(self, equipment_name: str, remote_config: RemoteConfig, allow_duplicate_remotes: bool,
+                              is_update: bool = False):
         interface = self._get_configured_interface(remote_config)
         allow_duplicate_remotes = True if (allow_duplicate_remotes or self.config.allow_duplicate_remotes) else False
         if not allow_duplicate_remotes:
@@ -258,47 +284,57 @@ class PlatformDriverAgent(Agent):
         else:
             unique_remote_id = BaseInterface.unique_remote_id(equipment_name, remote_config)
 
-        driver_agent = self.equipment_tree.remotes.get(unique_remote_id)
-        if not driver_agent:
-            driver_agent = DriverAgent(remote_config, self.core, self.equipment_tree, self.scalability_test,
+        remote = self.equipment_tree.remotes.get(unique_remote_id)
+        if not remote:
+            remote = DriverAgent(remote_config, self.core, self.equipment_tree, self.scalability_test,
                                        self.config.timezone, unique_remote_id, self.vip)
-            self.equipment_tree.remotes[unique_remote_id] = driver_agent
-        elif driver_agent.config != remote_config:
+            self.equipment_tree.remotes[unique_remote_id] = remote
+        elif not is_update and remote.config != remote.interface.INTERFACE_CONFIG_CLASS(**remote_config.model_dump()):
+            # TODO: Can we support some settings being different between two groupings on same remote?
+            #       e.g., two groups with different cov_lifetime intervals?
+            #       (This doesn't affect remote itself, but is an interface specific configuration.)
+            #       Can this use case already be accomodated using groups somehow?
             _log.warning(f'Remote configuration for equipment "{equipment_name}" does not match configuration'
                          f' of shared remote "{unique_remote_id}. Check configurations for consistency or consider'
                          f' setting "allow_duplicate_remotes == True".')
-        return driver_agent
+        return remote
 
-    def _get_configured_interface(self, remote_config):
-        interface = self.interface_classes.get(remote_config.driver_type)
+    def _get_configured_interface(self, remote_config: RemoteConfig):
+        driver_type = 'fake' if remote_config.driver_type == 'fakedriver' else remote_config.driver_type
+        interface = self.interface_classes.get(driver_type)
         if not interface:
             try:
                 module = remote_config.module
-                interface = BaseInterface.get_interface_subclass(remote_config.driver_type, module)
+                interface = BaseInterface.get_interface_subclass(driver_type, module)
                 if interface.default_config is None:
                     try:
-                        interface.default_config = self.vip.config.get(f'interfaces/{remote_config.driver_type}')
-                    except KeyError:
+                        interface.default_config = self.vip.config.get(f'interfaces/{driver_type}')
+                    except KeyError:  # TODO: Can this even raise KeyError? It will be None or and Attribute Error, no?
                         interface.default_config = {}
             except (AttributeError, ModuleNotFoundError, ValueError) as e:
-                raise ValueError(f'Unable to configure driver with interface: {remote_config.driver_type}.'
+                raise ValueError(f'Unable to configure driver with interface: {driver_type}.'
                                  f' This interface type is currently unknown or not installed.'
                                  f' Received exception: {e}')
-            self.interface_classes[remote_config.driver_type] = interface
+            self.interface_classes[driver_type] = interface
         return interface
 
     def _update_equipment(self, config_name: str, _, contents: dict) -> bool:
         """Callback for updating equipment configuration."""
-        remote_config, dev_config, registry_config = self._separate_equipment_configs(contents)
+        remote_config, dev_config, registry_configs = self._separate_equipment_configs(contents)
         if dev_config:
             try:
-                remote = self._get_or_create_remote(config_name, remote_config, dev_config.allow_duplicate_remotes)
+                remote = self._get_or_create_remote(config_name, remote_config, dev_config.allow_duplicate_remotes, True)
             except ValueError as e:
                 _log.warning(f'Skipping configuration of equipment: {config_name} after encountering error --- {e}')
                 return False
+            if remote.config != remote.interface.INTERFACE_CONFIG_CLASS(**remote_config.model_dump()):
+                # TODO: How do we reconcile potential differences with other users of this remote?
+                #       Currently, we are just going to change things out from underneath them.
+                pass
         else:
             remote = None
-        is_changed = self.equipment_tree.update_equipment(config_name, dev_config, remote, registry_config)
+        validated_reg_configs = [remote.interface.REGISTER_CONFIG_CLASS(**r) for r in registry_configs]
+        is_changed = self.equipment_tree.update_equipment(config_name, dev_config, remote, validated_reg_configs)
         if is_changed:
             points = self.equipment_tree.points(config_name)
             self._update_polling_schedules(points)
@@ -514,6 +550,29 @@ class PlatformDriverAgent(Agent):
             return_dict = {p.topic: (p.last_updated.isoformat() if p.last_updated else None) for p in points}
         return return_dict
 
+    @RPC.export
+    def call(self, method: str, topic: str | Sequence[str] | Set[str] = None, regex: str = None,
+             *args, **kwargs) -> tuple[dict, dict]:
+        # Find set of points to query and organize by remote:
+        query_plan = self.build_query_plan(topic, regex)
+        return self._call(query_plan, method, *args, **kwargs)
+
+    @RPC.export
+    def semantic_call(self, method: str, query: str, *args, **kwargs) -> tuple[dict, dict]:
+        exact_matches = self.semantic_query(query)
+        query_plan = self.build_query_plan(exact_matches)
+        return self._call(query_plan, method, *args, **kwargs)
+
+    @staticmethod
+    def _call(query_plan: dict[DriverAgent, Set[PointNode]], method: str, *args, **kwargs):
+        """Make query for selected points on each remote"""
+        results, errors = {}, {}
+        for (remote, point_set) in query_plan.items():
+            q_return_values, q_return_errors = remote.call(method, [p.identifier for p in point_set], *args, **kwargs)
+            results.update(q_return_values)
+            errors.update(q_return_errors)
+        return results, errors
+
     #-----------
     # UI Support
     #-----------
@@ -558,7 +617,7 @@ class PlatformDriverAgent(Agent):
             else:
                 p.active = False
                 group = self.equipment_tree.get_group(p.identifier)
-                self.poll_schedulers[group].remove_from_schedule(p)
+                self.poll_schedulers[group].remove_from_schedule(p, self.equipment_tree)
         # TODO: Add reschedule_all_on_update option and reschedule all poll_schedulers when true.
 
     @RPC.export
@@ -641,24 +700,45 @@ class PlatformDriverAgent(Agent):
         return self._remove_equipment(node_topic, None, None, leave_disconnected)
 
     @RPC.export
-    def add_interface(self, interface_name: str, local_path: str = None) -> bool:
-        raise NotImplementedError('add_interface is not yet implemented.')
-        # ### ADAPTED FROM volttron.client.install_agents.install_agent_vctl
-        # if os.path.isdir(interface_name):
-        #     pass # TODO: Install from directory (see install_agent_directory in volttron.client.install_agents.py)
-        # elif interface_name.endswith(".whl") and not os.path.isfile(interface_name):
-        #     raise InstallRuntimeError(f"Invalid wheel file {interface_name}")
-        #     # TODO: Seems like there should be another elif after this.
-        # else:
-        #     interface_package = self._interface_package_from_short_name(interface_name)
-        #     sp_result = subprocess.run([sys.executable, '-m', 'pip', 'install', interface_package])
-        # # TODO: What should this be returning?  If error_dict, how to get this?s
-        # return False if sp_result.returncode else True
+    def add_interface(self, interface_name: str, force: bool = False, pre_release: bool = False) -> bool:
+        # TODO: vdrv might want to get the absolute path before calling this, if it is a path.
+        interface_path = Path(interface_name)
+        if interface_path.is_dir():
+            with open(interface_path / 'pyproject.toml', 'rb') as f:
+                ppt = tomllib.load(f)
+            package_name, install_path = ppt['tool']['poetry']['name'], str(interface_path)
+        elif interface_path.is_file() and interface_path.suffix == ".whl":
+            package_name, install_path = str(interface_path.stem).split('-')[0], str(interface_path)
+        else:  # Use package name to get it from PyPI.
+            package_name = install_path = self._interface_package_from_short_name(interface_name)
+        try:
+            distribution('volttron-core')
+            arguments = Namespace(install_path=install_path, force=force, pre_release=pre_release)
+            try:
+                with redirect_stdout(st_out := StringIO()):
+                    install_lib_vctl(arguments)
+                success = True if st_out.getvalue().startswith('Installed') else False
+            except ValueError as e:
+                _log.warning(f'Failed to install interface "{interface_name}": {e}')
+                success = False
+        except PackageNotFoundError:  # Monolithic does not have install-lib. Handle this manually.
+            try:
+                subprocess.run(['pip', 'install', '--no-deps', str(install_path)],
+                               check=True, capture_output=True)
+                exclude_packages = ['python', 'volttron-core', 'volttron-lib-base-driver']
+                if deps := [d for d in requires(package_name) if d.split(' ')[0] not in exclude_packages]:
+                    subprocess.run((['pip', 'install', *deps]), check=True, capture_output=True)
+                success = True
+            except subprocess.CalledProcessError as e:
+                _log.warning(f'Failed to install interface "{interface_name}": {e.stderr}')
+                success = False
+        if success:
+            _log.info(f'Successfully installed {interface_name} driver interface.')
+        return success
 
     @RPC.export
     def list_interfaces(self) -> list[str]:
         """Return list of all installed driver interfaces."""
-        # TODO: Needs to be updated to use poetry.
         try:
             from volttron.driver import interfaces
             return [i.name for i in iter_modules(interfaces.__path__)]
@@ -667,10 +747,15 @@ class PlatformDriverAgent(Agent):
 
     @RPC.export
     def remove_interface(self, interface_name: str) -> bool:
-        # TODO: Needs to be updated to use poetry.
         interface_package = self._interface_package_from_short_name(interface_name)
-        sp_result = subprocess.run([sys.executable, '-m', 'pip', 'uninstall', interface_package])
-        return False if sp_result.returncode else True
+        try:
+            distribution('volttron-core')
+            subprocess.run(['poetry', '--directory', 'remove', interface_package], capture_output=True)
+        except PackageNotFoundError:
+            subprocess.run([sys.executable, '-m', 'pip', 'uninstall', interface_package, '--no-input'],
+                           capture_output=True)
+        sp_result = subprocess.run([sys.executable, '-m', 'pip', 'show', interface_package], capture_output=True)
+        return True if sp_result.returncode else False
 
     @RPC.export
     def list_topics(self, topic: str, regex: str = None,
