@@ -25,14 +25,14 @@
 from setuptools import setup, find_packages, find_namespace_packages
 
 # Find the agent package that contains the main module
-packages = find_namespace_packages("./scripts")
+packages = find_namespace_packages("./src")
 
 setup(
     name=f"vdrv",
     packages=packages,
-    package_dir={'': 'scripts'},
+    package_dir={'': 'src'},
     entry_points={
-        "console_scripts": [f"vdrv =vdrv.vdrv:main"]
+        "console_scripts": [f"vdrv =volttron.plugins.vctl.driver.parser:main"]
     },
     classifiers=[
         "Development Status :: 3 - Alpha",
