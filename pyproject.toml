@@ -22,7 +22,7 @@ readme = "README.md"
 repository = "https://github.com/eclipse-volttron/platform-driver-agent"
 homepage = "https://github.com/eclipse-volttron/platform-driver-agent"
 keywords = []
-packages = [ { include = "platform_driver", from = "src" } ]
+packages = [ { include = "platform_driver", from = "src" }, { include = "volttron", from = "src"} ]
 classifiers = [
     "Programming Language :: Python :: 3 :: Only",
     "Intended Audience :: Science/Research",
@@ -59,7 +59,7 @@ Sphinx = ">=4.5.0,<5.0.0"
 sphinx-rtd-theme = ">=1.0.0,<2.0.0"
 
 [tool.poetry.scripts]
-vdrv = "scripts.vdrv.vdrv"
+vdrv = "volttron.plugins.vctl.driver.parser:main"
 volttron-platform-driver = "platform_driver.agent:main"
 
 [tool.yapf]
