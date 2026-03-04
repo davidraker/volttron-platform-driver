@@ -713,7 +713,14 @@ class PlatformDriverAgent(Agent):
             package_name = install_path = self._interface_package_from_short_name(interface_name)
         try:
             distribution('volttron-core')
-            arguments = Namespace(install_path=install_path, force=force, pre_release=pre_release)
+            from functools import partial
+            # TODO: This method should probably be moved at least mostly into vctl,
+            #  and it should call the control service directly.
+            #  Otherwise, this may try to package a directory which is on the client here on the server.
+            class Conn:
+                call = partial(self.vip.rpc.call, 'platform.control')
+            arguments = Namespace(connection=Conn(), install_path=install_path,
+                                  force=force, pre_release=pre_release)
             try:
                 with redirect_stdout(st_out := StringIO()):
                     install_lib_vctl(arguments)

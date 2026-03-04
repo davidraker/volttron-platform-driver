@@ -62,8 +62,8 @@ Sphinx = ">=4.5.0,<5.0.0"
 sphinx-rtd-theme = ">=1.0.0,<2.0.0"
 
 [tool.poetry.scripts]
-vdrv = "volttron.plugins.vctl.driver.parser:main"
 volttron-platform-driver = "platform_driver.agent:main"
+vdrv = "volttron.plugins.vctl.driver.parser:main"
 
 [tool.yapf]
 based_on_style = "pep8"
