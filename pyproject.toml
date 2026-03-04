@@ -22,7 +22,10 @@ readme = "README.md"
 repository = "https://github.com/eclipse-volttron/platform-driver-agent"
 homepage = "https://github.com/eclipse-volttron/platform-driver-agent"
 keywords = []
+
 packages = [ { include = "platform_driver", from = "src" }, { include = "volttron", from = "src"} ]
+include =[{path="volttron-platform-driver-default-vip-id", format = ["sdist", "wheel"]}]
+
 classifiers = [
     "Programming Language :: Python :: 3 :: Only",
     "Intended Audience :: Science/Research",
@@ -31,7 +34,6 @@ classifiers = [
     "Intended Audience :: Other Audience",
     "License :: OSI Approved :: Apache Software License"
 ]
-include =[{path="volttron-platform-driver-default-vip-id", format = ["sdist", "wheel"]}]
 
 [tool.poetry.dependencies]
 python = ">=3.10,<4.0"
@@ -42,16 +44,17 @@ volttron-lib-base-driver = ">=2.0.0rc3"
 
 
 [tool.poetry.group.dev.dependencies]
-pytest = ">=6.2.5,<7.0.0"
-pytest-cov = ">=3.0.0,<4.0.0"
-mock = ">=4.0.3,<5.0.0"
-pre-commit = ">=2.17.0,<3.0.0"
-yapf = ">=0.32.0,<1.0.0"
-toml = ">=0.10.2,<1.0.0"
-isort = ">=5.10.1,<6.0.0"
-safety = ">=1.10.3,<2.0.0"
-mypy = ">=0.942,<1.0"
-coverage = ">=6.3.2,<7.0.0"
+volttron-testing = ">=0.5.1rc4"
+#pytest = ">=6.2.5,<7.0.0"
+#pytest-cov = ">=3.0.0,<4.0.0"
+#mock = ">=4.0.3,<5.0.0"
+#pre-commit = ">=2.17.0,<3.0.0"
+#yapf = ">=0.32.0,<1.0.0"
+#toml = ">=0.10.2,<1.0.0"
+#isort = ">=5.10.1,<6.0.0"
+#safety = ">=1.10.3,<2.0.0"
+#mypy = ">=0.942,<1.0"
+#coverage = ">=6.3.2,<7.0.0"
 
 
 [tool.poetry.group.documentation.dependencies]
