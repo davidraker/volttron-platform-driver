@@ -51,9 +51,6 @@ agent_deps = [f'{d}{v}' for d, v in ppt['tool']['poetry'].get('dependencies', {}
 deps = base_deps + agent_deps
 run(['pip', 'install', *deps], check=True)
 
-# Install vdrv
-run(['python', 'setup_vdrv.py', 'install'])
-
 MAIN_MODULE = 'agent'
 
 # Find the agent package that contains the main module
