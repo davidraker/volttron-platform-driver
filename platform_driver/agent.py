@@ -92,7 +92,7 @@ class PlatformDriverAgent(Agent):
     #########################
 
     @Core.receiver('onstop')
-    def _on_stop(self):
+    def _on_stop(self, _, **__):
         # TODO: Integrate this with greenlets other than heartbeat.
         self._stop_agent.set()
 
@@ -167,7 +167,7 @@ class PlatformDriverAgent(Agent):
                 or action == "NEW" or self.heartbeat_greenlet is None):
             if self.heartbeat_greenlet is not None:
                 self.heartbeat_greenlet.kill()
-            self.heartbeat_greenlet = self.core.spawn(self.heart_beat)
+            self.heartbeat_greenlet = gevent.spawn(self.heart_beat)
 
         # Start subscriptions:
         current_subscriptions = {topic: subscribed for _, topic, subscribed in self.vip.pubsub.list('pubsub').get()}
@@ -982,6 +982,9 @@ class PlatformDriverAgent(Agent):
         # TODO: Move this into the PollScheduler with configurable (per device) set of points and intervals (per-point).
         # TODO: config.heart_beat_point should be a set for each remote.
         while True:
+            if not self.equipment_tree.remotes:
+                gevent.sleep(self.config.remote_heartbeat_interval)
+                continue
             for remote in self.equipment_tree.remotes.values():
                 if self._stop_agent.is_set():
                     return
