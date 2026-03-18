@@ -30,6 +30,7 @@ import sys
 
 from collections import defaultdict
 from datetime import datetime
+from gevent.event import Event
 from importlib.metadata import distribution, PackageNotFoundError
 from pathlib import Path
 from pkgutil import iter_modules
@@ -51,7 +52,7 @@ try:
     from volttron.client.logs import setup_logging
     from volttron.client.messaging.health import STATUS_BAD
     from volttron.client.messaging.utils import normtopic
-    from volttron.client.vip.agent import Agent
+    from volttron.client.vip.agent import Agent, Core
     from volttron.client.vip.agent.subsystems.rpc import RPC
     from volttron.driver.base.driver import BaseInterface, DriverAgent
     from volttron.driver.base.driver_locks import configure_publish_lock, setup_socket_lock
@@ -65,7 +66,7 @@ except PackageNotFoundError:
     from volttron.platform.agent.known_identities import PLATFORM_DRIVER
     from volttron.platform.messaging.health import STATUS_BAD
     from volttron.platform.messaging.utils import normtopic
-    from volttron.platform.vip.agent import Agent
+    from volttron.platform.vip.agent import Agent, Core
     from volttron.platform.vip.agent.subsystems.rpc import RPC
     from volttron.driver.base.driver import BaseInterface, DriverAgent
     from volttron.driver.base.driver_locks import configure_publish_lock, setup_socket_lock
@@ -110,6 +111,7 @@ class PlatformDriverAgent(Agent):
         self.publishers = {}
         self.reservation_manager = None  # TODO: Should this use a default reservation manager?
         self.scalability_test = None
+        self._stop_agent = Event()
 
         self.vip.config.set_default("config", self.config.model_dump())
         self.vip.config.subscribe(self.configure_main, actions=['NEW', 'UPDATE', 'DELETE'], pattern='config')
@@ -120,6 +122,11 @@ class PlatformDriverAgent(Agent):
     #########################
     # Configuration & Startup
     #########################
+
+    @Core.receiver('onstop')
+    def _on_stop(self, _, **__):
+        # TODO: Integrate this with greenlets other than heartbeat.
+        self._stop_agent.set()
 
     def _load_agent_config(self, config: dict) -> PlatformDriverConfig:
         try:
@@ -192,7 +199,7 @@ class PlatformDriverAgent(Agent):
                 or action == "NEW" or self.heartbeat_greenlet is None):
             if self.heartbeat_greenlet is not None:
                 self.heartbeat_greenlet.kill()
-            self.heartbeat_greenlet = self.core.periodic(self.config.remote_heartbeat_interval, self.heart_beat)
+            self.heartbeat_greenlet = gevent.spawn(self.heart_beat)
 
         # Start subscriptions:
         current_subscriptions = {topic: subscribed for _, topic, subscribed in self.vip.pubsub.list('pubsub').get()}
@@ -1069,14 +1076,21 @@ class PlatformDriverAgent(Agent):
         """
         Sends heartbeat to all devices
         """
-        # TODO: This should send to all remotes, collect tasks, and then log tasks after the fact.
         # TODO: Move this into the PollScheduler with configurable (per device) set of points and intervals (per-point).
-        _log.debug("sending heartbeat")
-        for remote in self.equipment_tree.remotes.values():
-            try:
-                remote.heart_beat()
-            except (Exception, gevent.Timeout) as e:
-                _log.warning(f'Failed to set heart_beat point on remote: {remote.unique_id} -- {e}.')
+        # TODO: config.heart_beat_point should be a set for each remote.
+        while True:
+            if not self.equipment_tree.remotes:
+                gevent.sleep(self.config.remote_heartbeat_interval)
+                continue
+            for remote in self.equipment_tree.remotes.values():
+                if self._stop_agent.is_set():
+                    return
+                try:
+                    remote.heart_beat()
+                except (Exception, gevent.Timeout) as e:
+                    _log.warning(f'Failed to set heart_beat point on remote: {remote.unique_id} -- {e}.')
+                finally:
+                    gevent.sleep(self.config.remote_heartbeat_interval / len(self.equipment_tree.remotes))
 
     @RPC.export
     def revert_point(self, path: str, point_name: str, **kwargs):
