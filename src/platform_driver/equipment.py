@@ -417,8 +417,8 @@ class EquipmentTree(TopicTree):
         return self[next(self.rsearch(nid, lambda n: n.polling_interval is not None))].polling_interval
 
     def get_stale_timeout_configured(self, nid: str) -> float | None:
-        return self[next(self.rsearch(nid, lambda n: n.config.stale_timeout_configured is not None),
-                  float('inf'))].config.stale_timeout_configured
+        node_with_value = next(self.rsearch(nid, lambda n: n.config.stale_timeout_configured is not None), None)
+        return self[node_with_value].config.stale_timeout_configured if node_with_value is not None else None
 
     def get_stale_timeout_multiplier(self, nid: str) -> float:
         return self[next(self.rsearch(nid, lambda n: n.config.stale_timeout_multiplier is not None)
