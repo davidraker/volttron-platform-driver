@@ -205,20 +205,6 @@ class PointNode(EquipmentNode):
     def last_updated(self) -> datetime:
         return self.data['last_updated']
 
-    @property
-    def stale(self) -> bool:
-        if self.data['config'].stale_timeout is None:
-            return False
-        else:
-            now = get_aware_utc_now()
-            # TODO: Logic was duplicated to add a debug statement. Decide if a permanent info/warning is required
-            #  here or elsewhere and get rid of second check.
-            if now - self.last_updated > self.data['config'].stale_timeout:
-                _log.debug(f'{self.tag} is stale --- now: {now}, last_updated: {self.last_updated},'
-                           f' stale_timeout: {self.data["config"].stale_timeout}, interval: {self.polling_interval}')
-            return True if get_aware_utc_now() - self.last_updated > self.data['config'].stale_timeout else False
-
-
 class EquipmentTree(TopicTree):
     def __init__(self, agent, *args, **kwargs):
         super(EquipmentTree, self).__init__(root_name=agent.config.depth_first_base, node_class=EquipmentNode,
@@ -236,6 +222,8 @@ class EquipmentTree(TopicTree):
         root_config.publish_multi_breadth = agent.config.publish_multi_breadth
         root_config.publish_all_depth = agent.config.publish_all_depth
         root_config.publish_all_breadth = agent.config.publish_all_breadth
+        root_config.sale_timeout_configured = agent.config.stale_timeout_configured
+        root_config.stale_multiplier = agent.config.stale_multiplier
         root_config.strict_all_publishes = agent.config.strict_all_publishes
 
     if TYPE_CHECKING:
@@ -456,7 +444,8 @@ class EquipmentTree(TopicTree):
         return not any(p.last_updated is None for p in self.points(nid) if self.is_active(p.identifier))
 
     def is_stale(self, nid: str) -> bool:
-        return any(p.stale for p in self.points(nid) if self.is_active(p.identifier))
+        stale_timeout = self[next(self.rsearch(nid, lambda n: n.stale_timeout is not None), float('inf'))].stale_timeout
+        return True if get_aware_utc_now() - self.get_node(nid).last_updated > stale_timeout else False
 
     def active_points(self, points: EquipmentNode | Iterable[EquipmentNode]) -> Iterable[PointNode]:
         points = self.points(points.identifier) if isinstance(points, EquipmentNode) else points
@@ -468,7 +457,7 @@ class EquipmentTree(TopicTree):
 
     def non_stale_points(self, points: EquipmentNode | Iterable[EquipmentNode]) -> Iterable[PointNode]:
         points = self.points(points.identifier) if isinstance(points, EquipmentNode) else points
-        return {p for p in points if not p.stale}
+        return {p for p in points if not self.is_stale(p.identifier)}
 
     def update_stored_registry_config(self, nid: str):
         # TODO: This updates the registry using JSON no matter what its original saved format was. This should be fine,
