@@ -80,7 +80,7 @@ class PlatformDriverConfig(BaseModel):
     scalability_test: bool = False
     scalability_test_iterations: int = 3
     stale_timeout_configured: Annotated[float | None, empty_str_is(None)] = Field(default=None, alias='stale_timeout')
-    stale_multiplier: Annotated[float, empty_str_is(3.0)] = Field(default=3.0)
+    stale_timeout_multiplier: Annotated[float, empty_str_is(3.0)] = Field(default=3.0)
     strict_all_publishes: bool = False
     timezone: str = 'UTC'  # TODO: Timezone needs integration (is is currently used in creating register metadata). The
                            #  driver has traditionally configured timezones at the device level, but these are not used

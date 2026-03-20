@@ -25,7 +25,7 @@
 import gevent
 import logging
 
-from datetime import datetime
+from datetime import datetime, timedelta
 from importlib.metadata import distribution, PackageNotFoundError
 from treelib.exceptions import DuplicatedNodeIdError
 from typing import Any, cast, Iterable, Optional, TYPE_CHECKING, Union
@@ -222,8 +222,8 @@ class EquipmentTree(TopicTree):
         root_config.publish_multi_breadth = agent.config.publish_multi_breadth
         root_config.publish_all_depth = agent.config.publish_all_depth
         root_config.publish_all_breadth = agent.config.publish_all_breadth
-        root_config.sale_timeout_configured = agent.config.stale_timeout_configured
-        root_config.stale_multiplier = agent.config.stale_multiplier
+        root_config.stale_timeout_configured = agent.config.stale_timeout_configured
+        root_config.stale_timeout_multiplier = agent.config.stale_timeout_multiplier
         root_config.strict_all_publishes = agent.config.strict_all_publishes
 
     if TYPE_CHECKING:
@@ -416,6 +416,14 @@ class EquipmentTree(TopicTree):
     def get_polling_interval(self, nid: str) -> float:
         return self[next(self.rsearch(nid, lambda n: n.polling_interval is not None))].polling_interval
 
+    def get_stale_timeout_configured(self, nid: str) -> float | None:
+        return self[next(self.rsearch(nid, lambda n: n.config.stale_timeout_configured is not None),
+                  float('inf'))].config.stale_timeout_configured
+
+    def get_stale_timeout_multiplier(self, nid: str) -> float:
+        return self[next(self.rsearch(nid, lambda n: n.config.stale_timeout_multiplier is not None)
+                         )].config.stale_timeout_multiplier
+
     def is_published_single_depth(self, nid: str) -> bool:
         return self[next(self.rsearch(nid, lambda n: n.publish_single_depth is not None))].publish_single_depth
     
@@ -444,7 +452,16 @@ class EquipmentTree(TopicTree):
         return not any(p.last_updated is None for p in self.points(nid) if self.is_active(p.identifier))
 
     def is_stale(self, nid: str) -> bool:
-        stale_timeout = self[next(self.rsearch(nid, lambda n: n.stale_timeout is not None), float('inf'))].stale_timeout
+        stale_timeout_configured = self.get_stale_timeout_configured(nid)
+        stale_timeout_multiplier = self.get_stale_timeout_multiplier(nid)
+        polling_interval = self.get_polling_interval(nid)
+
+        if stale_timeout_configured is None and (polling_interval is None or stale_timeout_multiplier is None):
+                stale_timeout = float('inf')
+        else:
+            stale_timeout = timedelta(seconds=(stale_timeout_configured
+                                               if stale_timeout_configured is not None
+                                               else polling_interval * stale_timeout_multiplier))
         return True if get_aware_utc_now() - self.get_node(nid).last_updated > stale_timeout else False
 
     def active_points(self, points: EquipmentNode | Iterable[EquipmentNode]) -> Iterable[PointNode]:
