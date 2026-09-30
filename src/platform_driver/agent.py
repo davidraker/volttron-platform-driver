@@ -152,24 +152,24 @@ class PlatformDriverAgent(Agent):
         else:
             # Some settings cannot be changed while running. Warn and replace these with the old ones until restart.
             _log.info('Updated configuration received for Platform Driver.')
-            if new_config.max_open_sockets != old_config['max_open_sockets']:
-                new_config.max_open_sockets = old_config['max_open_sockets']
+            if new_config.max_open_sockets != old_config.max_open_sockets:
+                new_config.max_open_sockets = old_config.max_open_sockets
                 _log.info('Restart Platform Driver for changes to the max_open_sockets setting to take effect')
 
-            if new_config.max_concurrent_publishes != old_config['max_concurrent_publishes']:
-                new_config.max_concurrent_publishes = old_config['max_concurrent_publishes']
+            if new_config.max_concurrent_publishes != old_config.max_concurrent_publishes:
+                new_config.max_concurrent_publishes = old_config.max_concurrent_publishes
                 _log.info('Restart Platform Driver for changes to the max_concurrent_publishes setting to take effect')
 
-            if new_config.scalability_test != old_config['scalability_test']:
-                new_config.scalability_test = old_config['scalability_test']
+            if new_config.scalability_test != old_config.scalability_test:
+                new_config.scalability_test = old_config.scalability_test
                 if not old_config.scalability_test:
                     _log.info('Restart Platform Driver with scalability_test set to true in order to run a test.')
                 if old_config.scalability_test:
                     _log.info("A scalability test may not be interrupted. Restart the driver to stop the test.")
             try:
-                if new_config.scalability_test_iterations != old_config['scalability_test_iterations'] and \
+                if new_config.scalability_test_iterations != old_config.scalability_test_iterations and \
                         old_config.scalability_test:
-                    new_config.scalability_test_iterations = old_config['scalability_test_iterations']
+                    new_config.scalability_test_iterations = old_config.scalability_test_iterations
                     _log.info('The scalability_test_iterations setting cannot be changed without restarting the agent.')
             except ValueError:
                 pass
