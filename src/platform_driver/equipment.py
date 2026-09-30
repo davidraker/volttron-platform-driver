@@ -27,7 +27,6 @@ import logging
 
 from datetime import datetime, timedelta
 from importlib.metadata import distribution, PackageNotFoundError
-from treelib.exceptions import DuplicatedNodeIdError
 from typing import Any, cast, Iterable, Optional, TYPE_CHECKING, Union
 from weakref import WeakValueDictionary
 
@@ -45,7 +44,7 @@ except PackageNotFoundError:
 
 from .overrides import OverrideError
 from .reservations import ReservationLockError
-from .topic_tree import TopicNode, TopicTree
+from volttron.lib.tree import DuplicatedNodeIdError, TopicNode, TopicTree
 
 
 _log = logging.getLogger(__name__)
