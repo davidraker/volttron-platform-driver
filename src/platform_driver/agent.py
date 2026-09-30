@@ -263,6 +263,7 @@ class PlatformDriverAgent(Agent):
             if dev_config:
                 # Received new device node.
                 remote = self._get_or_create_remote(equipment_name, remote_config, dev_config.allow_duplicate_remotes)
+                registry_configs = remote.interface.prepare_registry_config(registry_configs, remote_config)
                 validated_reg_configs = (remote.interface.REGISTER_CONFIG_CLASS(**r) for r in registry_configs)
                 device_node = self.equipment_tree.add_device(device_topic=equipment_name, dev_config=dev_config,
                                                              remote=remote, registry_configs=validated_reg_configs)
@@ -336,6 +337,8 @@ class PlatformDriverAgent(Agent):
                 pass
         else:
             remote = None
+        if remote is not None:
+            registry_configs = remote.interface.prepare_registry_config(registry_configs, remote_config)
         validated_reg_configs = [remote.interface.REGISTER_CONFIG_CLASS(**r) for r in registry_configs]
         is_changed = self.equipment_tree.update_equipment(config_name, dev_config, remote, validated_reg_configs)
         if is_changed:
