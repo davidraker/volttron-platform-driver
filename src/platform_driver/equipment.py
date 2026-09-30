@@ -159,7 +159,9 @@ class DeviceNode(EquipmentNode):
 
     @property
     def all_publish_interval(self) -> float:
-        return self.data['config'].all_publish_interval
+        return (self.data['config'].all_publish_interval
+                if self.data['config'] is not None
+                else self._remote.equipment_model.agent.config.all_publish_interval)
 
     @property
     def remote(self) -> DriverAgent:
