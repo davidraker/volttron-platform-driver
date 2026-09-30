@@ -252,7 +252,9 @@ class PlatformDriverAgent(Agent):
 
     def _configure_new_equipment(self, equipment_name: str, _, contents: dict, schedule_now: bool = True) -> bool:
         existing_node = self.equipment_tree.get_node(equipment_name)
-        if existing_node:
+        # A bare topic segment (an ancestor of equipment configured earlier) is not existing equipment: fall through
+        # and configure the device or segment at this topic. EquipmentTree.add_device replaces the bare node.
+        if existing_node is not None and existing_node.is_concrete:
             if not existing_node.config_finished:
                 existing_node.config_finished = True
                 return False
@@ -272,7 +274,8 @@ class PlatformDriverAgent(Agent):
                 equipment_config = EquipmentConfig(**contents)
                 self.equipment_tree.add_segment(equipment_name, equipment_config)
             if schedule_now:
-                points = self.equipment_tree.points(equipment_name)
+                points = (self.equipment_tree.device_points(equipment_name) if dev_config
+                          else self.equipment_tree.points(equipment_name))
                 self._update_polling_schedules(points)
             return True
         except ValueError as e:
@@ -342,7 +345,8 @@ class PlatformDriverAgent(Agent):
         validated_reg_configs = [remote.interface.REGISTER_CONFIG_CLASS(**r) for r in registry_configs]
         is_changed = self.equipment_tree.update_equipment(config_name, dev_config, remote, validated_reg_configs)
         if is_changed:
-            points = self.equipment_tree.points(config_name)
+            points = (self.equipment_tree.device_points(config_name) if dev_config
+                      else self.equipment_tree.points(config_name))
             self._update_polling_schedules(points)
         return is_changed
 
