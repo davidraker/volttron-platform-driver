@@ -81,6 +81,7 @@ from .constants import *
 from .equipment import DeviceNode, EquipmentNode, EquipmentTree, PointNode
 from .overrides import OverrideManager
 from .poll_scheduler import PollScheduler
+from .served_state import ServedStateStore
 from .reservations import ReservationManager
 from .scalability_testing import ScalabilityTester
 
@@ -107,6 +108,7 @@ class PlatformDriverAgent(Agent):
         self.publishers = {}
         self.reservation_manager = None  # TODO: Should this use a default reservation manager?
         self.scalability_test = None
+        self.served_state = ServedStateStore(self, self.config.served_state_flush_interval)
         self._stop_agent = Event()
 
         self.vip.config.set_default("config", self.config.model_dump())
@@ -123,6 +125,7 @@ class PlatformDriverAgent(Agent):
     def _on_stop(self, _, **__):
         # TODO: Integrate this with greenlets other than heartbeat.
         self._stop_agent.set()
+        self.served_state.flush()
 
     def _load_agent_config(self, config: dict) -> PlatformDriverConfig:
         try:
@@ -179,6 +182,7 @@ class PlatformDriverAgent(Agent):
             self.config = new_config
         if self.override_manager is None:
             self.override_manager = OverrideManager(self)
+        self.served_state.flush_interval = self.config.served_state_flush_interval
 
         # Set up Reservation Manager:
         if self.reservation_manager is None:
@@ -270,6 +274,8 @@ class PlatformDriverAgent(Agent):
                 validated_reg_configs = (remote.interface.REGISTER_CONFIG_CLASS(**r) for r in registry_configs)
                 device_node = self.equipment_tree.add_device(device_topic=equipment_name, dev_config=dev_config,
                                                              remote=remote, registry_configs=validated_reg_configs)
+                # Served values saved by an earlier run go into the tree first, so the registration carries them.
+                self.served_state.load_into(device_node)
                 remote.add_equipment(device_node)
             else: # Received new or updated segment node.
                 equipment_config = EquipmentConfig(**contents)
@@ -379,6 +385,9 @@ class PlatformDriverAgent(Agent):
         for point in self.equipment_tree.points(config_name):
             group = self.equipment_tree.get_group(point.identifier)
             poll_schedulers.append(self.poll_schedulers.get(group))
+        node = self.equipment_tree.get_node(config_name)
+        if node is not None and getattr(node, 'is_device', False):
+            self.served_state.forget(config_name)
         removed_count = self.equipment_tree.remove_segment(config_name, leave_disconnected)
         # TODO: Add reschedule_all_on_update option and reschedule all poll_schedulers when true.
         return True if removed_count > 0 else False

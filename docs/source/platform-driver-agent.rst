@@ -348,6 +348,12 @@ and how the poll scheduler reads it:
 Points which are not polled cyclically have no expected update interval: they count as stale only once a configured
 ``stale_timeout`` has passed since their last update, and ``static`` points never do.
 
+The values of ``server`` points are kept across restarts of the platform driver in the agent's configuration store, as
+one entry per device named ``state/<device topic>`` holding ``{point: value}``. Writes are coalesced to one per device
+per ``served_state_flush_interval`` seconds (default 5) and on shutdown. The entry is read into the equipment tree before
+the device registers with its protocol proxy, so the registration carries the values to the proxy, and it is deleted
+when the device is removed. It may be inspected with ``vctl config get`` but must not be edited while the driver runs.
+
 
 Getting Values
 --------------

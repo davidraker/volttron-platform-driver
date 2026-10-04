@@ -468,6 +468,13 @@ class EquipmentTree(TopicTree):
     def is_active(self, nid: str) -> bool:
         return self[next(self.rsearch(nid, lambda n: n.active is not None))].active
 
+    def record_pushed_value(self, point: PointNode):
+        """Called by DriverAgent.publish_push for every value it stores: served points' values are kept in the agent's
+        configuration store across restarts (see served_state)."""
+        store = getattr(self.agent, 'served_state', None)
+        if store is not None:
+            store.record(point)
+
     def is_ready(self, nid: str) -> bool:
         return not any(p.last_updated is None for p in self.points(nid) if self.is_active(p.identifier))
 

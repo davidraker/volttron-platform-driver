@@ -52,6 +52,12 @@ features intended to make polling more scalable, flexible, and efficient:
   and `server` points are the served points of a device in a server role, written by the platform and by
   the remote peer and never polled. Points which are not polled cyclically become stale only when a
   configured "stale_timeout" has passed since their last update (`static` points never do).
+* The values of `server` points are kept across restarts of the platform driver in the agent's own
+  configuration store, one entry per device named `state/<device topic>` holding `{point: value}`
+  (inspect it with `vctl config get`; do not edit it while the driver runs). Writes are coalesced to one
+  per device per `served_state_flush_interval` seconds (default 5) and on shutdown; the entry is read into
+  the equipment tree before the device registers with its protocol proxy, so the registration carries the
+  values to the proxy, and it is deleted when the device is removed.
 
 #### Publication Changes
 As the direct result of the new capability for points to have different polling rates,
