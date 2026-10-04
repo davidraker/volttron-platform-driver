@@ -327,6 +327,27 @@ point name:
 
     For additional, non-default publish formats, see :ref:`Device Scalability Settings <Device-Scalability-Settings>`.
 
+Data sources
+^^^^^^^^^^^^
+
+The optional ``Data Source`` registry column (``data_source``) says how a point gets its value, which decides whether
+and how the poll scheduler reads it:
+
+==============  ====================================================================================================
+``short_poll``  Polled at its polling interval in the device group's regular cyclic schedule. The default.
+``long_poll``   Polled at its polling interval in a separate schedule, so that very long intervals (totals,
+                configuration registers) do not stretch the hyperperiod of the regular schedule.
+``poll_once``   Read once when the device is configured or reconfigured (nameplate data), then never polled.
+``static``      Never read from the device. The value is configuration or whatever was last written to the point.
+``never_poll``  Never polled; the value comes from pushes (change of value, unsolicited responses) or explicit gets.
+                ``never`` is accepted as an older spelling.
+``server``      A served point of a device in a server role: written by the platform and by the remote peer, never
+                polled, and seeded when the device registers with its protocol proxy.
+==============  ====================================================================================================
+
+Points which are not polled cyclically have no expected update interval: they count as stale only once a configured
+``stale_timeout`` has passed since their last update, and ``static`` points never do.
+
 
 Getting Values
 --------------

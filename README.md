@@ -42,6 +42,16 @@ features intended to make polling more scalable, flexible, and efficient:
   should not share its remote with other devices.
 * Last known values and times at which these were obtained are stored
   in a data model and can be retrieved with the "last" RPC method.
+* A 'Data Source' registry column says how each point gets its value, and so how it is scheduled:
+  `short_poll` (the default) points share the device group's regular cyclic schedule; `long_poll` points
+  (totals, configuration registers) are polled at their own interval in a separate schedule, so a very
+  long interval does not stretch the hyperperiod of the regular one; `poll_once` points (nameplate data)
+  are read once when the device is configured or reconfigured; `static` points are never read from the
+  device (their value is configuration or whatever was last written); `never_poll` points are never
+  polled but still take values from pushes (change of value, unsolicited responses) and explicit gets;
+  and `server` points are the served points of a device in a server role, written by the platform and by
+  the remote peer and never polled. Points which are not polled cyclically become stale only when a
+  configured "stale_timeout" has passed since their last update (`static` points never do).
 
 #### Publication Changes
 As the direct result of the new capability for points to have different polling rates,

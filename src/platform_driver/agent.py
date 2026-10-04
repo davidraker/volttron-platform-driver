@@ -219,6 +219,7 @@ class PlatformDriverAgent(Agent):
         self.poll_schedulers = PollScheduler.setup(self.equipment_tree, self.config.groups)
         for poll_scheduler in self.poll_schedulers.values():
             poll_scheduler.schedule()
+        self._poll_once(self.equipment_tree.points())
 
         # Set up All Publishes:
         self._start_all_publishes()
@@ -350,7 +351,15 @@ class PlatformDriverAgent(Agent):
             self._update_polling_schedules(points)
         return is_changed
 
+    def _poll_once(self, points):
+        """Read the ``POLL_ONCE`` points among ``points`` now, each remote's in one request, off the caller's greenlet."""
+        for poll_set in PollScheduler.one_shot_poll_sets(self.equipment_tree, points):
+            _log.info(f'Polling {len(poll_set.points)} poll-once point(s) on {poll_set.remote.unique_id}.')
+            self.core.spawn(poll_set.remote.poll_data, poll_set)
+
     def _update_polling_schedules(self, points):
+        points = list(points)
+        self._poll_once(points)
         reschedules_required, new_groups = [], []
         for point in points:
             group = self.equipment_tree.get_group(point.identifier)
@@ -626,8 +635,7 @@ class PlatformDriverAgent(Agent):
                 continue
             else:
                 p.active = False
-                group = self.equipment_tree.get_group(p.identifier)
-                self.poll_schedulers[group].remove_from_schedule(p, self.equipment_tree)
+                PollScheduler.remove_from_schedule(p, self.equipment_tree)
         # TODO: Add reschedule_all_on_update option and reschedule all poll_schedulers when true.
 
     @RPC.export
