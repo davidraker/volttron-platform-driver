@@ -505,8 +505,11 @@ class PlatformDriverAgent(Agent):
                     self.equipment_tree.raise_on_locks(point, sender)
                 except:
                     pass # TODO: Handle this exception.
-            # TODO: When map_points is True, all topics are sent to all remotes. This is probably wrong.
-            point_value_tuples = list(value.items()) if map_points else [(p.identifier, value) for p in point_set]
+            # map_points: value maps each point's topic to its own value; a remote gets only its points' items.
+            point_value_tuples = ([(p.identifier, value[p.identifier]) for p in point_set if p.identifier in value] if map_points
+                                  else [(p.identifier, value) for p in point_set])
+            if not point_value_tuples:
+                continue
             query_return_results, query_return_errors = remote.set_multiple_points(point_value_tuples)
             results.update(query_return_results)
             errors.update(query_return_errors)
@@ -1088,7 +1091,8 @@ class PlatformDriverAgent(Agent):
             for point, value in point_names_values:
                 topic_value_map[self._equipment_id(path, point)] = value
 
-        _, ret_errors = self.set(topic_value_map, map_points=True, **kwargs)
+        # Only the mapped points are planned (an unqualified query would plan every point of every remote).
+        _, ret_errors = self.set(topic_value_map, topic=list(topic_value_map), map_points=True, **kwargs)
         errors.update(ret_errors)
         return errors
 
