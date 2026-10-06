@@ -23,6 +23,11 @@ This documentation is current up to version 1.x of the Platform Driver Agent and
 to reflect new features and behaviors in the course of RC releases. Most existing configurations
 and behaviors remain valid, however, so this remains a good source of information.
 
+# Deployment considerations
+Since platform driver is designed to read and write information from various devices, once you test your agents in development environment, we highly recommend you **add authorization rules to your production deployment** to prevent unauthorized access to your devices. Please refer to [VIP Authorization](https://eclipse-volttron.readthedocs.io/en/latest/platform-features/message-bus/vip/vip-authorization.html) on how to configure authorization rules to protect driver rpc calls and devices topic that driver writes to.
+
+# New features in version 2.0
+
 #### New Polling Features
 The Platform Driver version 2.0 does introduce multiple new capabilities.
 A detailed table showing current state of completion of features to be included in
@@ -194,17 +199,19 @@ vctl status
 ```
 
 To communicate with devices, one or more driver interfaces will also need to be installed.
-Each interface is distributed as a library and may be installed separately using poetry.
+Each interface is distributed as a library and may be installed separately using `vctl install-lib`.
 In the current RC version of the driver, only two interfaces are fully supported:
 
 * A Fake Driver (which returns data from a csv file):
     ```shell
-    poetry add --directory $VOLTTRON_HOME volttron-lib-fake-driver
+    vctl install-lib volttron-lib-fake-driver
     ```
 * BACnet:
     ```shell
-    poetry add --directory $VOLTTRON_HOME volttron-lib-fake-driver
+    vctl install-lib volttron-lib-bacnet-driver
     ```
+
+Libraries may be removed later with `vctl remove-lib <library name>`.
 
 Additional interfaces will be available in later RC releases.
 
@@ -261,6 +268,29 @@ compatability and will work the same as the name in the key of this dictionary.
   "timezone":"UTC",  # The timezone to use in pulbish meta-data.
 }
 ```
+
+## Securing device writes
+
+By default, every agent that is authenticated to the message bus can call the Platform Driver's write methods
+(`set_point`, `set_multiple_points`, `revert_point`, `revert_device`, `set_override_on` and `set_override_off`),
+whatever capabilities it has otherwise been granted. This default is kept for compatibility with existing
+deployments, but it means that any compromised or misbehaving agent on the platform can actuate every device the
+driver controls. **Operators are strongly recommended to protect these methods** by requiring authorization for them
+and granting it only to the agents that are meant to write to devices:
+
+```bash
+# Require authorization for the write methods of the Platform Driver.
+vctl authz add agent platform.driver --protected-rpcs set_point set_multiple_points revert_point revert_device set_override_on set_override_off
+
+# Create a role carrying the write capabilities and assign it to the agents that need them.
+vctl authz add role device_writer --rpc-capabilities platform.driver.set_point platform.driver.set_multiple_points platform.driver.revert_point platform.driver.revert_device
+vctl authz add agent my.control.agent --role-names device_writer
+```
+
+Replace `platform.driver` with the driver's VIP identity if it has been changed, and list only the methods each
+role actually needs. Calls to a protected method from an agent without the matching capability are refused by the
+platform's authorization service. Reads (`get_point`, `get_multiple_points`, `scrape_all`) may be protected in the
+same way where device data is sensitive.
 
 # Development
 
