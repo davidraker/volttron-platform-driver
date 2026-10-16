@@ -1291,6 +1291,22 @@ class TestPDAUnderscoreGet:
         assert errors == {}
 
 
+class TestScheduleGroup:
+    """One polling group failing to schedule must not stop the others."""
+
+    def test_failure_is_logged_and_contained(self, caplog):
+        scheduler = Mock()
+        scheduler.schedule.side_effect = ValueError('Cannot combine PollSets based on different remotes')
+        with caplog.at_level('ERROR'):
+            assert PlatformDriverAgent._schedule_group('30', scheduler) is False
+        assert 'Polling group \'30\' could not be scheduled' in caplog.text
+
+    def test_success(self):
+        scheduler = Mock()
+        assert PlatformDriverAgent._schedule_group('default', scheduler) is True
+        scheduler.schedule.assert_called_once_with()
+
+
 class TestPDAUnderscoreSetMapping:
     """Tests for _set with a topic-to-value map: topics matching no configured point are reported, a single value
     reaches every planned point."""

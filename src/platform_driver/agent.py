@@ -221,8 +221,8 @@ class PlatformDriverAgent(Agent):
 
         # Schedule Polling
         self.poll_schedulers = PollScheduler.setup(self.equipment_tree, self.config.groups)
-        for poll_scheduler in self.poll_schedulers.values():
-            poll_scheduler.schedule()
+        for group, poll_scheduler in self.poll_schedulers.items():
+            self._schedule_group(group, poll_scheduler)
         self._poll_once(self.equipment_tree.points())
 
         # Set up All Publishes:
@@ -377,7 +377,17 @@ class PlatformDriverAgent(Agent):
             self.poll_schedulers.update(PollScheduler.create_poll_schedulers(self.equipment_tree, self.config.groups,
                                                                              new_groups, len(self.poll_schedulers)))
         for updated_group in reschedules_required:
-            self.poll_schedulers[updated_group].schedule()
+            self._schedule_group(updated_group, self.poll_schedulers[updated_group])
+
+    @staticmethod
+    def _schedule_group(group: str, poll_scheduler) -> bool:
+        """Schedule one polling group's polls; a failure is logged and leaves the other groups' scheduling to proceed."""
+        try:
+            poll_scheduler.schedule()
+            return True
+        except Exception as e:
+            _log.error(f'Polling group {group!r} could not be scheduled; its points will not be polled: {e!r}', exc_info=True)
+            return False
 
     def _remove_equipment(self, config_name: str, _, __, leave_disconnected=False) -> bool:
         """Callback to remove equipment configuration."""
