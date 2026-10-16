@@ -81,6 +81,7 @@ from .constants import *
 from .equipment import DeviceNode, EquipmentNode, EquipmentTree, PointNode
 from .overrides import OverrideManager
 from .poll_scheduler import PollScheduler
+from .served_state import ServedStateStore
 from .reservations import ReservationManager
 from .scalability_testing import ScalabilityTester
 
@@ -107,6 +108,7 @@ class PlatformDriverAgent(Agent):
         self.publishers = {}
         self.reservation_manager = None  # TODO: Should this use a default reservation manager?
         self.scalability_test = None
+        self.served_state = ServedStateStore(self, self.config.served_state_flush_interval)
         self._stop_agent = Event()
 
         self.vip.config.set_default("config", self.config.model_dump())
@@ -123,6 +125,7 @@ class PlatformDriverAgent(Agent):
     def _on_stop(self, _, **__):
         # TODO: Integrate this with greenlets other than heartbeat.
         self._stop_agent.set()
+        self.served_state.flush()
 
     def _load_agent_config(self, config: dict) -> PlatformDriverConfig:
         try:
@@ -179,6 +182,7 @@ class PlatformDriverAgent(Agent):
             self.config = new_config
         if self.override_manager is None:
             self.override_manager = OverrideManager(self)
+        self.served_state.flush_interval = self.config.served_state_flush_interval
 
         # Set up Reservation Manager:
         if self.reservation_manager is None:
@@ -219,6 +223,7 @@ class PlatformDriverAgent(Agent):
         self.poll_schedulers = PollScheduler.setup(self.equipment_tree, self.config.groups)
         for poll_scheduler in self.poll_schedulers.values():
             poll_scheduler.schedule()
+        self._poll_once(self.equipment_tree.points())
 
         # Set up All Publishes:
         self._start_all_publishes()
@@ -269,6 +274,8 @@ class PlatformDriverAgent(Agent):
                 validated_reg_configs = (remote.interface.REGISTER_CONFIG_CLASS(**r) for r in registry_configs)
                 device_node = self.equipment_tree.add_device(device_topic=equipment_name, dev_config=dev_config,
                                                              remote=remote, registry_configs=validated_reg_configs)
+                # Served values saved by an earlier run go into the tree first, so the registration carries them.
+                self.served_state.load_into(device_node)
                 remote.add_equipment(device_node)
             else: # Received new or updated segment node.
                 equipment_config = EquipmentConfig(**contents)
@@ -350,7 +357,15 @@ class PlatformDriverAgent(Agent):
             self._update_polling_schedules(points)
         return is_changed
 
+    def _poll_once(self, points):
+        """Read the ``POLL_ONCE`` points among ``points`` now, each remote's in one request, off the caller's greenlet."""
+        for poll_set in PollScheduler.one_shot_poll_sets(self.equipment_tree, points):
+            _log.info(f'Polling {len(poll_set.points)} poll-once point(s) on {poll_set.remote.unique_id}.')
+            self.core.spawn(poll_set.remote.poll_data, poll_set)
+
     def _update_polling_schedules(self, points):
+        points = list(points)
+        self._poll_once(points)
         reschedules_required, new_groups = [], []
         for point in points:
             group = self.equipment_tree.get_group(point.identifier)
@@ -370,6 +385,9 @@ class PlatformDriverAgent(Agent):
         for point in self.equipment_tree.points(config_name):
             group = self.equipment_tree.get_group(point.identifier)
             poll_schedulers.append(self.poll_schedulers.get(group))
+        node = self.equipment_tree.get_node(config_name)
+        if node is not None and getattr(node, 'is_device', False):
+            self.served_state.forget(config_name)
         removed_count = self.equipment_tree.remove_segment(config_name, leave_disconnected)
         # TODO: Add reschedule_all_on_update option and reschedule all poll_schedulers when true.
         return True if removed_count > 0 else False
@@ -487,8 +505,11 @@ class PlatformDriverAgent(Agent):
                     self.equipment_tree.raise_on_locks(point, sender)
                 except:
                     pass # TODO: Handle this exception.
-            # TODO: When map_points is True, all topics are sent to all remotes. This is probably wrong.
-            point_value_tuples = list(value.items()) if map_points else [(p.identifier, value) for p in point_set]
+            # map_points: value maps each point's topic to its own value; a remote gets only its points' items.
+            point_value_tuples = ([(p.identifier, value[p.identifier]) for p in point_set if p.identifier in value] if map_points
+                                  else [(p.identifier, value) for p in point_set])
+            if not point_value_tuples:
+                continue
             query_return_results, query_return_errors = remote.set_multiple_points(point_value_tuples)
             results.update(query_return_results)
             errors.update(query_return_errors)
@@ -626,8 +647,7 @@ class PlatformDriverAgent(Agent):
                 continue
             else:
                 p.active = False
-                group = self.equipment_tree.get_group(p.identifier)
-                self.poll_schedulers[group].remove_from_schedule(p, self.equipment_tree)
+                PollScheduler.remove_from_schedule(p, self.equipment_tree)
         # TODO: Add reschedule_all_on_update option and reschedule all poll_schedulers when true.
 
     @RPC.export
@@ -1071,7 +1091,8 @@ class PlatformDriverAgent(Agent):
             for point, value in point_names_values:
                 topic_value_map[self._equipment_id(path, point)] = value
 
-        _, ret_errors = self.set(topic_value_map, map_points=True, **kwargs)
+        # Only the mapped points are planned (an unqualified query would plan every point of every remote).
+        _, ret_errors = self.set(topic_value_map, topic=list(topic_value_map), map_points=True, **kwargs)
         errors.update(ret_errors)
         return errors
 

@@ -1559,6 +1559,27 @@ class TestPDAUnderscoreSet:
         assert not errors, "Errors should be empty when no errors are returned."
         assert not results, "Results should be empty when confirm_values is False."
 
+    def test_set_mapped_values_reach_only_the_owning_remote(self):
+        """With map_points, value maps each point's topic to its own value; a remote gets only its points' items and a
+        remote owning none of the mapped points is not called (set_multiple_points used to send every topic to every
+        remote, which refused the foreign ones as not configured)."""
+        remote_a, remote_b, remote_c = Mock(), Mock(), Mock()
+        for remote in (remote_a, remote_b, remote_c):
+            remote.set_multiple_points.return_value = ({}, {})
+        a1, a2, b1, c1 = Mock(), Mock(), Mock(), Mock()
+        a1.identifier, a2.identifier, b1.identifier, c1.identifier = "devices/a/p1", "devices/a/p2", "devices/b/p1", "devices/c/p1"
+        value = {"devices/a/p1": 1, "devices/a/p2": 2, "devices/b/p1": 3}
+        query_plan = {remote_a: {a1, a2}, remote_b: {b1}, remote_c: {c1}}
+
+        agent = Mock()
+        agent.vip.rpc.context.vip_message.peer = "tester"
+        results, errors = PlatformDriverAgent._set(agent, value, query_plan, False, True)
+
+        assert set(remote_a.set_multiple_points.call_args.args[0]) == {("devices/a/p1", 1), ("devices/a/p2", 2)}
+        assert remote_b.set_multiple_points.call_args.args[0] == [("devices/b/p1", 3)]
+        remote_c.set_multiple_points.assert_not_called()
+        assert errors == {} and results == {}
+
     def test_set_single_value_with_confirm(self):
         """Ensure _set sets multiple points with a single value and confirms the changes."""
         value = "new_value"
@@ -2982,6 +3003,7 @@ class TestSetMultiplePoints:
             'device1/point1': 100,
             'device1/point2': 200
         },
+                                        topic=['device1/point1', 'device1/point2'],
                                         map_points=True)
         PDA._equipment_id.assert_any_call('device1', 'point1')
         PDA._equipment_id.assert_any_call('device1', 'point2')
@@ -3004,6 +3026,7 @@ class TestSetMultiplePoints:
             'device1/point1': 100,
             'device1/point2': 200
         },
+                                        topic=['device1/point1', 'device1/point2'],
                                         map_points=True,
                                         some_key='some_value')
         PDA._equipment_id.assert_any_call('device1', 'point1')
