@@ -516,6 +516,13 @@ class PlatformDriverAgent(Agent):
             if confirm_values:
                 # TODO: Should results contain the values read back from the device, or Booleans for success?
                 results.update(remote.get_multiple_points([p.identifier for p in point_set])[0])
+        if map_points:
+            # Topics that match no configured point are not in the plan and never reach a remote; report them as the
+            # interfaces report unknown points of their own.
+            planned = {p.identifier for point_set in query_plan.values() for p in point_set}
+            for topic in value:
+                if topic not in planned and topic not in errors:
+                    errors[topic] = 'Point not configured on device.'
         return results, errors
 
     @RPC.export

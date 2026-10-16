@@ -1291,6 +1291,50 @@ class TestPDAUnderscoreGet:
         assert errors == {}
 
 
+class TestPDAUnderscoreSetMapping:
+    """Tests for _set with a topic-to-value map: topics matching no configured point are reported, a single value
+    reaches every planned point."""
+
+    @pytest.fixture
+    def PDA(self, base_PDA):
+        base_PDA.equipment_tree = MagicMock()
+        base_PDA.vip = MagicMock()
+        base_PDA.vip.rpc.context.vip_message.peer = 'caller'
+        return base_PDA
+
+    @staticmethod
+    def _plan():
+        remote1, remote2 = MagicMock(spec=DriverAgent), MagicMock(spec=DriverAgent)
+        points = {}
+        for name in ('devices/a/p1', 'devices/a/p2', 'devices/b/p3'):
+            node = MagicMock(spec=PointNode)
+            node.identifier = name
+            points[name] = node
+        plan = {remote1: {points['devices/a/p1'], points['devices/a/p2']}, remote2: {points['devices/b/p3']}}
+        remote1.set_multiple_points.return_value = ({'devices/a/p1': 1, 'devices/a/p2': 2}, {})
+        remote2.set_multiple_points.return_value = ({'devices/b/p3': 3}, {})
+        return remote1, remote2, plan
+
+    def test_map_points_reports_topics_matching_no_point(self, PDA):
+        remote1, remote2, plan = self._plan()
+        value = {'devices/a/p1': 1, 'devices/a/p2': 2, 'devices/b/p3': 3, 'devices/b/nope': 4}
+
+        results, errors = PDA._set(value, plan, confirm_values=False, map_points=True)
+
+        assert errors == {'devices/b/nope': 'Point not configured on device.'}
+        assert results == {'devices/a/p1': 1, 'devices/a/p2': 2, 'devices/b/p3': 3}
+
+    def test_single_value_goes_to_every_planned_point(self, PDA):
+        remote1, remote2, plan = self._plan()
+
+        PDA._set(7, plan, confirm_values=False, map_points=False)
+
+        (sent1,), _ = remote1.set_multiple_points.call_args
+        (sent2,), _ = remote2.set_multiple_points.call_args
+        assert sorted(sent1) == [('devices/a/p1', 7), ('devices/a/p2', 7)]
+        assert sent2 == [('devices/b/p3', 7)]
+
+
 class TestPDASet:
 
     @pytest.fixture
