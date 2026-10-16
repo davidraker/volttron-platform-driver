@@ -74,8 +74,8 @@ class EquipmentNode(TopicNode):
         self.data['config'] = value
 
     @property
-    def group(self) -> str:
-        return self.data['config'].group
+    def polling_group(self) -> str:
+        return self.data['config'].polling_group
 
     @property
     def meta_data(self) -> dict:
@@ -215,7 +215,7 @@ class EquipmentTree(TopicTree):
 
         root_config = self[self.root].data['config']
         root_config.active = True
-        root_config.group = 'default'
+        root_config.polling_group = 'default'
         root_config.polling_interval = agent.config.default_polling_interval
         root_config.publish_single_depth = agent.config.publish_single_depth
         root_config.publish_single_breadth = agent.config.publish_single_breadth
@@ -425,7 +425,7 @@ class EquipmentTree(TopicTree):
         return self.get_device_node(nid).remote
 
     def get_group(self, nid: str) -> str:
-        return self[next(self.rsearch(nid, lambda n: n.group is not None))].group
+        return self[next(self.rsearch(nid, lambda n: n.polling_group is not None))].polling_group
 
     def get_point_topics(self, nid: str) -> tuple[str, str]:
         return nid, '/'.join([self.agent.config.breadth_first_base] + list(reversed(nid.split('/')[1:])))
