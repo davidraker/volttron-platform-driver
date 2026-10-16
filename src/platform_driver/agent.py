@@ -468,45 +468,54 @@ class PlatformDriverAgent(Agent):
     ###############
 
     @RPC.export
-    def get(self, topic: str | Sequence[str] | Set[str] = None, regex: str = None) -> tuple[dict, dict]:
+    def get(self, topic: str | Sequence[str] | Set[str] = None, regex: str = None, **kwargs) -> tuple[dict, dict]:
+        """Read the selected points. Keyword arguments not named here are interface-specific read options (e.g.
+        BACnet's on_property) and are passed through to the interface unchanged."""
         # Find set of points to query and organize by remote:
         query_plan = self.build_query_plan(topic, regex)
-        return self._get(query_plan)
+        return self._get(query_plan, **kwargs)
 
     @RPC.export
-    def semantic_get(self, query: str) -> tuple[dict, dict]:
+    def semantic_get(self, query: str, **kwargs) -> tuple[dict, dict]:
         exact_matches = self.semantic_query(query)
         query_plan = self.build_query_plan(exact_matches)
-        return self._get(query_plan)
+        return self._get(query_plan, **kwargs)
 
-    def _get(self, query_plan: dict[DriverAgent, Set[PointNode]]):
-        """Make query for selected points on each remote"""
+    def _get(self, query_plan: dict[DriverAgent, Set[PointNode]], **kwargs):
+        """Make query for selected points on each remote. ``kwargs`` are interface-specific read options."""
         results, errors = {}, {}
         for (remote, point_set) in query_plan.items():
-            q_return_values, q_return_errors = remote.get_multiple_points([p.identifier for p in point_set])
-            for topic, val in q_return_values.items():
-                node = self.equipment_tree.get_node(topic)
-                if node:
-                    node.last_value = val
+            q_return_values, q_return_errors = remote.get_multiple_points([p.identifier for p in point_set], **kwargs)
+            if not kwargs:
+                # Read options select something other than the point's ordinary value (e.g. another BACnet
+                # property), so only an unqualified read may refresh the cached last values.
+                for topic, val in q_return_values.items():
+                    node = self.equipment_tree.get_node(topic)
+                    if node:
+                        node.last_value = val
             results.update(q_return_values)
             errors.update(q_return_errors)
         return results, errors
 
     @RPC.export
     def set(self, value: Any, topic: str | Sequence[str] | Set[str] = None, regex: str = None,
-            confirm_values: bool = False, map_points: bool = False) -> tuple[dict, dict]:
+            confirm_values: bool = False, map_points: bool = False, **kwargs) -> tuple[dict, dict]:
+        """Write the selected points. Keyword arguments not named here are interface-specific write options (e.g.
+        BACnet's priority) and are passed through to the interface unchanged."""
         query_plan = self.build_query_plan(topic, regex)
-        return self._set(value, query_plan, confirm_values, map_points)
+        return self._set(value, query_plan, confirm_values, map_points, **kwargs)
 
     @RPC.export
-    def semantic_set(self, value: Any, query: str, confirm_values: bool = False) -> tuple[dict, dict]:
+    def semantic_set(self, value: Any, query: str, confirm_values: bool = False, **kwargs) -> tuple[dict, dict]:
         exact_matches = self.semantic_query(query)
         query_plan = self.build_query_plan(exact_matches)
-        return self._set(value, query_plan, confirm_values)
+        return self._set(value, query_plan, confirm_values, **kwargs)
 
-    def _set(self, value: Any, query_plan: dict[DriverAgent, Set[PointNode]], confirm_values: bool, map_points=False
-             ) -> tuple[dict, dict]:
-        """Set selected points on each remote"""
+    def _set(self, value: Any, query_plan: dict[DriverAgent, Set[PointNode]], confirm_values: bool, map_points=False,
+             **kwargs) -> tuple[dict, dict]:
+        """Set selected points on each remote. ``kwargs`` are interface-specific write options. The confirming read
+        receives the same options so that it reads what was written (e.g. the same BACnet property); the interface
+        ignores any that do not apply to a read."""
         results, errors = {}, {}
         sender = self.vip.rpc.context.vip_message.peer
         for (remote, point_set) in query_plan.items():
@@ -520,12 +529,12 @@ class PlatformDriverAgent(Agent):
                                   else [(p.identifier, value) for p in point_set])
             if not point_value_tuples:
                 continue
-            query_return_results, query_return_errors = remote.set_multiple_points(point_value_tuples)
+            query_return_results, query_return_errors = remote.set_multiple_points(point_value_tuples, **kwargs)
             results.update(query_return_results)
             errors.update(query_return_errors)
             if confirm_values:
                 # TODO: Should results contain the values read back from the device, or Booleans for success?
-                results.update(remote.get_multiple_points([p.identifier for p in point_set])[0])
+                results.update(remote.get_multiple_points([p.identifier for p in point_set], **kwargs)[0])
         if map_points:
             # Topics that match no configured point are not in the plan and never reach a remote; report them as the
             # interfaces report unknown points of their own.
@@ -536,21 +545,22 @@ class PlatformDriverAgent(Agent):
         return results, errors
 
     @RPC.export
-    def revert(self, topic: str | Sequence[str] | Set[str] = None, regex: str = None) -> dict[str, str]:
-              # confirm_values: bool = False) -> dict:
+    def revert(self, topic: str | Sequence[str] | Set[str] = None, regex: str = None, **kwargs) -> dict[str, str]:
+        """Revert the selected points. Keyword arguments not named here are interface-specific revert options (e.g.
+        BACnet's priority) and are passed through to the interface unchanged."""
         query_plan = self.build_query_plan(topic, regex)
-        return self._revert(query_plan)  # , confirm_values)
+        return self._revert(query_plan, **kwargs)  # , confirm_values)
 
     @RPC.export
-    def semantic_revert(self, query: str) -> dict[str, str]:  #, confirm_values: bool = False) -> dict:
+    def semantic_revert(self, query: str, **kwargs) -> dict[str, str]:  #, confirm_values: bool = False) -> dict:
         exact_matches = self.semantic_query(query)
         query_plan = self.build_query_plan(exact_matches)
-        return self._revert(query_plan)  #, confirm_values)
+        return self._revert(query_plan, **kwargs)  #, confirm_values)
 
     @staticmethod
-    def _revert(query_plan) -> dict[str, str]:  #, confirm_values: bool) -> dict[str, str]:
+    def _revert(query_plan, **kwargs) -> dict[str, str]:  #, confirm_values: bool) -> dict[str, str]:
         """
-        Revert each point from query.
+        Revert each point from query. ``kwargs`` are interface-specific revert options.
           If an exception is raised, return it in the error dict.
         """
         # TODO: If it is possible to check values, we may need to do that at the interface level.
@@ -559,7 +569,7 @@ class PlatformDriverAgent(Agent):
         for (remote, point_set) in query_plan.items():
             for point in point_set:
                 try:
-                    remote.revert_point(point.identifier)
+                    remote.revert_point(point.identifier, **kwargs)
                 except Exception as e:
                     # TODO: revert_point may not raise. Does _set_point, typically?  If we make them raise,
                     #  we can return some errors, at least. It may not be possible to check success in all cases.
@@ -1056,7 +1066,7 @@ class PlatformDriverAgent(Agent):
         device = topic if topic is not None else path
         if device is None:
             raise TypeError('scrape_all() requires a device topic.')
-        return self.get(topic=self._equipment_id(device, None))[0]
+        return self.get(topic=self._equipment_id(device, None), **kwargs)[0]
 
     @RPC.export
     def get_multiple_points(self, path: str | Sequence[str | Sequence] = None, point_names: Sequence[str] = None,
@@ -1085,7 +1095,7 @@ class PlatformDriverAgent(Agent):
         if isinstance(topics, str):
             if not point_names:
                 # A device topic alone: read every point beneath it (a pattern query, not an exact match).
-                return self.get(topic=self._equipment_id(topics))
+                return self.get(topic=self._equipment_id(topics), **kwargs)
             for point in point_names:
                 devices.add(self._equipment_id(topics, point))
         elif isinstance(topics, Sequence):
@@ -1099,7 +1109,7 @@ class PlatformDriverAgent(Agent):
                     errors[repr(topic)] = repr(e)
         else:
             raise TypeError(f'Invalid topics argument: {topics!r}')
-        results, query_errors = self.get(devices)
+        results, query_errors = self.get(devices, **kwargs)
         errors.update(query_errors)
         return results, errors
 
@@ -1215,7 +1225,7 @@ class PlatformDriverAgent(Agent):
             device = path
         else:
             raise TypeError('revert_device() requires a device topic.')
-        self.revert(self._equipment_id(device, None))
+        self.revert(self._equipment_id(device, None), **kwargs)
 
         headers = self._get_headers(sender)
         self._push_result_topic_pair(REVERT_DEVICE_RESPONSE_PREFIX, device, headers, None)

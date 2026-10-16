@@ -4026,3 +4026,94 @@ class TestPDALegacyRpcArgumentShapes:
     def test_scrape_all_shapes(self, PDA, args, kwargs):
         PDA.scrape_all(*args, **kwargs)
         PDA.get.assert_called_once_with(topic='devices/campus/b/dev')
+
+
+class TestPDAInterfaceKwargsForwarding:
+    """Interface-specific keyword arguments (e.g. BACnet priority / on_property) reach the remote from every query API,
+    reads with keywords do not refresh last_value, and the confirming read of a write uses the write's keywords."""
+
+    @pytest.fixture
+    def PDA(self, base_PDA):
+        base_PDA.vip.rpc.context.vip_message.peer = 'caller'
+        base_PDA.remote = MagicMock()
+        base_PDA.remote.get_multiple_points.return_value = ({'devices/d/p1': 1.0}, {})
+        base_PDA.remote.set_multiple_points.return_value = ({'devices/d/p1': 5}, {})
+        base_PDA.point = MagicMock(identifier='devices/d/p1')
+        base_PDA.node = MagicMock(last_value='stale')
+        base_PDA.equipment_tree.root = 'devices'
+        base_PDA.equipment_tree.get_node = Mock(return_value=base_PDA.node)
+        base_PDA.equipment_tree.raise_on_locks = Mock()
+        base_PDA.build_query_plan = MagicMock(return_value={base_PDA.remote: {base_PDA.point}})
+        base_PDA.semantic_query = MagicMock(return_value=['devices/d/p1'])
+        return base_PDA
+
+    # ---- reads ---------------------------------------------------------------------------------------------------
+    def test_get_forwards_read_kwargs_and_leaves_last_value(self, PDA):
+        PDA.get(topic='d', on_property='object-name')
+        PDA.remote.get_multiple_points.assert_called_once_with(['devices/d/p1'], on_property='object-name')
+        assert PDA.node.last_value == 'stale'
+
+    def test_get_without_kwargs_updates_last_value(self, PDA):
+        PDA.get(topic='d')
+        PDA.remote.get_multiple_points.assert_called_once_with(['devices/d/p1'])
+        assert PDA.node.last_value == 1.0
+
+    def test_semantic_get_forwards_read_kwargs(self, PDA):
+        PDA.semantic_get('query', on_property='object-name')
+        PDA.remote.get_multiple_points.assert_called_once_with(['devices/d/p1'], on_property='object-name')
+
+    @pytest.mark.parametrize('call', [
+        lambda PDA: PDA.get_multiple_points('d', ['p1'], on_property='object-name'),
+        lambda PDA: PDA.get_multiple_points(['d/p1'], on_property='object-name'),
+        lambda PDA: PDA.get_multiple_points('d', on_property='object-name'),                 # device-only read
+        lambda PDA: PDA.scrape_all('d', on_property='object-name'),
+    ])
+    def test_legacy_reads_forward_kwargs(self, PDA, call):
+        call(PDA)
+        PDA.remote.get_multiple_points.assert_called_once_with(['devices/d/p1'], on_property='object-name')
+
+    # ---- writes --------------------------------------------------------------------------------------------------
+    def test_set_forwards_write_kwargs_to_write_and_confirm_read(self, PDA):
+        # The confirming read must address the same thing the write did (e.g. the same BACnet property), so it gets
+        # the same keywords; the interface drops those that mean nothing for a read (e.g. priority).
+        PDA.set(5, topic='d', confirm_values=True, priority=8, on_property='relinquish-default')
+        PDA.remote.set_multiple_points.assert_called_once_with([('devices/d/p1', 5)], priority=8,
+                                                               on_property='relinquish-default')
+        PDA.remote.get_multiple_points.assert_called_once_with(['devices/d/p1'], priority=8,
+                                                               on_property='relinquish-default')
+
+    def test_semantic_set_forwards_write_kwargs(self, PDA):
+        PDA.semantic_set(5, 'query', priority=8)
+        PDA.remote.set_multiple_points.assert_called_once_with([('devices/d/p1', 5)], priority=8)
+
+    @pytest.mark.parametrize('call', [
+        lambda PDA: PDA.set_multiple_points('d', [('p1', 5)], priority=8),                           # driver style
+        lambda PDA: PDA.set_multiple_points('someone', [('d/p1', 5)], priority=8),                   # actuator style
+        lambda PDA: PDA.set_multiple_points(topics_values=[('d/p1', 5)], requester_id='x', priority=8),
+    ])
+    def test_legacy_set_multiple_points_forwards_kwargs(self, PDA, call):
+        # build_query_plan is mocked; the legacy method must still hand the remote the write option, not requester_id.
+        def get_node(nid):
+            return PDA.node if nid in ('devices/d', 'devices/d/p1') else None
+        PDA.equipment_tree.get_node = Mock(side_effect=get_node)
+        call(PDA)
+        PDA.remote.set_multiple_points.assert_called_once()
+        assert PDA.remote.set_multiple_points.call_args.kwargs == {'priority': 8}
+
+    # ---- reverts -------------------------------------------------------------------------------------------------
+    def test_revert_forwards_kwargs(self, PDA):
+        PDA.revert(topic='d', priority=8)
+        PDA.remote.revert_point.assert_called_once_with('devices/d/p1', priority=8)
+
+    def test_semantic_revert_forwards_kwargs(self, PDA):
+        PDA.semantic_revert('query', priority=8)
+        PDA.remote.revert_point.assert_called_once_with('devices/d/p1', priority=8)
+
+    @pytest.mark.parametrize('call', [
+        lambda PDA: PDA.revert_device('d', priority=8),
+        lambda PDA: PDA.revert_device('someone', 'd', priority=8),
+        lambda PDA: PDA.revert_device(topic='d', requester_id='x', priority=8),
+    ])
+    def test_legacy_revert_device_forwards_kwargs(self, PDA, call):
+        call(PDA)
+        PDA.remote.revert_point.assert_called_once_with('devices/d/p1', priority=8)
