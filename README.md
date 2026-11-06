@@ -215,6 +215,25 @@ Libraries may be removed later with `vctl remove-lib <library name>`.
 
 Additional interfaces will be available in later RC releases.
 
+## Command-line tools
+
+Installing the agent on the modular platform also installs a `vctl` plugin: `vctl driver get|set|revert|last|list`
+and the `node` and `interface` subcommands operate on the driver over its RPC interface. For example:
+
+```shell
+vctl driver get devices/campus/building/device/point
+```
+
+The Monolithic platform's `vctl` has no plugin mechanism, so the same commands are provided there by a standalone
+`vdrv` script (`vdrv driver get ...`). `vctl install` does not place it on the path; install it once from this
+directory with the platform's virtual environment active:
+
+```shell
+python setup_vdrv.py develop
+```
+
+Both share `vctl`'s control connection identity, so do not run them while another `vctl` command is in progress.
+
 # Configuration
 
 Existing configuration files should generally continue to work as expected.
