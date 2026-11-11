@@ -139,7 +139,7 @@ class PollScheduler(metaclass=abc.ABCMeta):
       stretch the hyperperiod of the regular schedule;
     * ``POLL_ONCE`` points are never in a cyclic schedule; :meth:`one_shot_poll_sets` collects them so the agent can
       read them once at start-up and whenever they are (re)configured;
-    * ``STATIC``, ``NEVER_POLL`` and ``SERVER`` points are never polled by the scheduler.
+    * ``STATIC``, ``NEVER_POLL``, ``SERVER`` and ``VIRTUAL`` points are never polled by the scheduler.
 
     Both ``poll_sets`` dictionaries are ``{group: {remote: {interval: PollSet}}}``.
     """
@@ -159,13 +159,29 @@ class PollScheduler(metaclass=abc.ABCMeta):
     @classmethod
     def one_shot_poll_sets(cls, data_model: EquipmentTree, points: Iterable[PointNode] | None = None
                            ) -> list[PollSet]:
-        """One PollSet per remote of the active ``POLL_ONCE`` points among ``points`` (all points when None)."""
-        points = data_model.points() if points is None else points
+        """One PollSet per remote of the active ``POLL_ONCE`` points among ``points`` (all points when None), plus the
+        polled points that other points' transforms read (a scale factor), so they have a last value before the first
+        cyclic poll of anything depending on them. Their own schedules are unchanged."""
+        points = list(data_model.points() if points is None else points)
         by_remote: dict[DriverAgent, PollSet] = {}
+        remotes: dict[int, DriverAgent] = {}
         for point in points:
-            if point.data_source is DataSource.POLL_ONCE and data_model.is_active(point.identifier):
+            try:
                 remote = data_model.get_remote(point.identifier)
+            except Exception:                                   # a point without a device above it
+                continue
+            remotes[id(remote)] = remote
+            if point.data_source is DataSource.POLL_ONCE and data_model.is_active(point.identifier):
                 by_remote.setdefault(remote, PollSet(data_model, remote)).add(point)
+        for remote in remotes.values():
+            topics = getattr(remote, 'startup_read_topics', ())
+            if not isinstance(topics, (list, tuple, set, frozenset)):
+                continue
+            for topic in topics:
+                node = data_model.get_node(topic)
+                if (node is not None and getattr(node, 'is_point', False) and data_model.is_active(topic)
+                        and getattr(node.data_source, 'polled', False)):
+                    by_remote.setdefault(remote, PollSet(data_model, remote)).add(node)
         return list(by_remote.values())
 
     def __init__(self, data_model: EquipmentTree, group: str, group_config: GroupConfig, **kwargs):

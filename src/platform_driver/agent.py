@@ -50,13 +50,13 @@ try:
     from volttron.client.commands.install_parser import install_lib_vctl
     from volttron.client.known_identities import PLATFORM_DRIVER
     from volttron.client.logs import setup_logging
-    from volttron.client.messaging.health import STATUS_BAD
+    from volttron.client.messaging.health import STATUS_BAD, STATUS_GOOD, Status
     from volttron.client.messaging.utils import normtopic
     from volttron.client.vip.agent import Agent, Core
     from volttron.client.vip.agent.subsystems.rpc import RPC
     from volttron.driver.base.driver import BaseInterface, DriverAgent
     from volttron.driver.base.driver_locks import configure_publish_lock, setup_socket_lock
-    from volttron.driver.base.config import DeviceConfig, EquipmentConfig, PointConfig, RemoteConfig
+    from volttron.driver.base.config import DeviceConfig, EquipmentConfig, PointConfig, RemoteConfig, accepted_columns
     from volttron.driver.base.utils import publication_headers, publish_wrapper
     from volttron.utils import format_timestamp, get_aware_utc_now, load_config, vip_main
     from volttron.utils.jsonrpc import RemoteError
@@ -64,13 +64,13 @@ try:
 except PackageNotFoundError:
     from importlib.metadata import requires
     from volttron.platform.agent.known_identities import PLATFORM_DRIVER
-    from volttron.platform.messaging.health import STATUS_BAD
+    from volttron.platform.messaging.health import STATUS_BAD, STATUS_GOOD, Status
     from volttron.platform.messaging.utils import normtopic
     from volttron.platform.vip.agent import Agent, Core
     from volttron.platform.vip.agent.subsystems.rpc import RPC
     from volttron.driver.base.driver import BaseInterface, DriverAgent
     from volttron.driver.base.driver_locks import configure_publish_lock, setup_socket_lock
-    from volttron.driver.base.config import DeviceConfig, EquipmentConfig, PointConfig, RemoteConfig
+    from volttron.driver.base.config import DeviceConfig, EquipmentConfig, PointConfig, RemoteConfig, accepted_columns
     from volttron.driver.base.utils import publication_headers, publish_wrapper
     from volttron.platform.agent.utils import format_timestamp, get_aware_utc_now, load_config, setup_logging, vip_main
     from volttron.platform.jsonrpc import RemoteError
@@ -110,6 +110,7 @@ class PlatformDriverAgent(Agent):
         self.scalability_test = None
         self.served_state = ServedStateStore(self, self.config.served_state_flush_interval)
         self._stop_agent = Event()
+        self._failing_remotes: dict[str, str] = {}      # remote id -> last error, for the agent's health context
 
         self.vip.config.set_default("config", self.config.model_dump())
         self.vip.config.subscribe(self.configure_main, actions=['NEW', 'UPDATE', 'DELETE'], pattern='config')
@@ -245,6 +246,10 @@ class PlatformDriverAgent(Agent):
             point_configs = []
             # Set up any point nodes which are children of this device.
             for reg in registry_config:
+                # A comment row: its first cell starts with '#', as modbus_tk register maps allowed.
+                first = next(iter(reg.values()), None) if isinstance(reg, dict) and reg else None
+                if isinstance(first, str) and first.lstrip().startswith('#'):
+                    continue
                 # If there are fields in device config for all registries, add them where they are not overridden:
                 for k, v in dev_config.equipment_specific_fields.items():
                     if not reg.get(k):
@@ -271,7 +276,8 @@ class PlatformDriverAgent(Agent):
                 # Received new device node.
                 remote = self._get_or_create_remote(equipment_name, remote_config, dev_config.allow_duplicate_remotes)
                 registry_configs = remote.interface.prepare_registry_config(registry_configs, remote_config)
-                validated_reg_configs = (remote.interface.REGISTER_CONFIG_CLASS(**r) for r in registry_configs)
+                self._warn_unknown_columns(equipment_name, remote.interface, registry_configs)
+                validated_reg_configs = self._validate_rows(equipment_name, remote.interface, registry_configs)
                 device_node = self.equipment_tree.add_device(device_topic=equipment_name, dev_config=dev_config,
                                                              remote=remote, registry_configs=validated_reg_configs)
                 # Served values saved by an earlier run go into the tree first, so the registration carries them.
@@ -289,6 +295,31 @@ class PlatformDriverAgent(Agent):
             _log.warning(f'Skipping configuration of equipment: {equipment_name} after encountering error --- {e}')
             return False
 
+    @staticmethod
+    def _warn_unknown_columns(equipment_name: str, interface, rows: list[dict]):
+        """Registry columns the interface does not define are dropped silently by validation; say so once per device,
+        with the interface's hint for legacy columns (modbus_tk's Precision, say) where it has one."""
+        accepted = accepted_columns(interface.REGISTER_CONFIG_CLASS)
+        hints = {k.lower(): v for k, v in (getattr(interface, 'LEGACY_COLUMN_HINTS', None) or {}).items()}
+        unknown = sorted({column for row in rows if isinstance(row, dict) for column in row} - accepted)
+        if unknown:
+            notes = [f'{column} ({hints[column.lower()]})' if column.lower() in hints else column for column in unknown]
+            _log.warning(f'{equipment_name}: registry columns not used by the {interface.__class__.__name__} interface:'
+                         f' {", ".join(notes)}.')
+
+    @staticmethod
+    def _validate_rows(equipment_name: str, interface, rows: list[dict]) -> list[PointConfig]:
+        """Validate the rows as the interface's point configuration; a row that fails is logged and dropped so the
+        rest of the device still configures."""
+        validated = []
+        for row in rows:
+            try:
+                validated.append(interface.REGISTER_CONFIG_CLASS(**row))
+            except (ValidationError, ValueError, TypeError) as e:
+                name = row.get('Volttron Point Name') or row.get('volttron_point_name') or row if isinstance(row, dict) else row
+                _log.error(f'{equipment_name}: registry row {name!r} is not configured: {e}')
+        return validated
+
     def _get_or_create_remote(self, equipment_name: str, remote_config: RemoteConfig, allow_duplicate_remotes: bool,
                               is_update: bool = False):
         interface = self._get_configured_interface(remote_config)
@@ -302,6 +333,7 @@ class PlatformDriverAgent(Agent):
         if not remote:
             remote = DriverAgent(remote_config, self.core, self.equipment_tree, self.scalability_test,
                                        self.config.timezone, unique_remote_id, self.vip)
+            remote.health.on_change = self._remote_health_changed
             self.equipment_tree.remotes[unique_remote_id] = remote
         elif not is_update and remote.config != remote.interface.INTERFACE_CONFIG_CLASS(**remote_config.model_dump()):
             # TODO: Can we support some settings being different between two groupings on same remote?
@@ -349,7 +381,10 @@ class PlatformDriverAgent(Agent):
             remote = None
         if remote is not None:
             registry_configs = remote.interface.prepare_registry_config(registry_configs, remote_config)
-        validated_reg_configs = [remote.interface.REGISTER_CONFIG_CLASS(**r) for r in registry_configs]
+            self._warn_unknown_columns(config_name, remote.interface, registry_configs)
+            validated_reg_configs = self._validate_rows(config_name, remote.interface, registry_configs)
+        else:
+            validated_reg_configs = [PointConfig(**r) for r in registry_configs]
         is_changed = self.equipment_tree.update_equipment(config_name, dev_config, remote, validated_reg_configs)
         if is_changed:
             points = (self.equipment_tree.device_points(config_name) if dev_config
@@ -743,9 +778,70 @@ class PlatformDriverAgent(Agent):
         return self._status(points)
 
     def _status(self, points: Iterable[PointNode]) -> dict:
-        raise NotImplementedError('status is not yet implemented.')
-        # # TODO: Implement _status()
-        # return {'error': 'Status reporting is not yet implemented'}
+        """Per point: whether it is active, its last value and time, whether that is stale, and the error of the latest
+        poll of its remote, if it failed there."""
+        status = {}
+        for point in points:
+            try:
+                remote = self.equipment_tree.get_remote(point.identifier)
+            except Exception:
+                remote = None
+            errors = getattr(getattr(remote, 'health', None), 'point_errors', {}) if remote is not None else {}
+            status[point.identifier] = {
+                'active': self.equipment_tree.is_active(point.identifier),
+                'last_value': point.last_value,
+                'last_updated': point.last_updated.isoformat() if point.last_updated else None,
+                'stale': self.equipment_tree.is_stale(point.identifier),
+                'error': errors.get(point.identifier),
+            }
+        return status
+
+    @RPC.export
+    def health(self, topic: str | Sequence[str] | Set[str] = None, regex: str = None) -> dict:
+        """RPC method
+
+        Health of the remotes behind the selected equipment (every remote when nothing is selected), keyed by device
+        topic: poll and write counters, consecutive failures, the last error, the points that failed in the latest
+        poll, recent events, and whatever the protocol adds (a proxy's connection counters, device identification).
+        """
+        if topic is None and regex is None:
+            devices = list(self.equipment_tree.devices())
+        else:
+            devices = []
+            for point in self.equipment_tree.find_points(topic, regex):
+                device = self.equipment_tree.get_device_node(point.identifier)
+                if device not in devices:
+                    devices.append(device)
+        report = {}
+        for device in devices:
+            remote = device.remote
+            if remote is None:
+                continue
+            try:
+                report[device.identifier] = remote.health_report()
+            except Exception as e:
+                report[device.identifier] = {'status': 'UNKNOWN', 'error': f'health unavailable: {e}'}
+        return report
+
+    def _remote_health_changed(self, health):
+        """A remote started or stopped answering: the agent's own health keeps its status but lists the failing
+        remotes in its context, and an alert is sent for the change so a listener can act on it."""
+        remote_id = str(health.unique_id)
+        if health.status == 'BAD':
+            self._failing_remotes[remote_id] = health.last_error or 'no values returned'
+        else:
+            self._failing_remotes.pop(remote_id, None)
+        try:
+            current = self.vip.health.get_status()
+            current_status = current.get('status') if isinstance(current, dict) else getattr(current, 'status', None)
+            if current_status != STATUS_BAD:
+                context = {'failing_remotes': dict(self._failing_remotes)} if self._failing_remotes else 'All remotes are answering.'
+                self.vip.health.set_status(STATUS_GOOD, context)
+            alert = Status.build(STATUS_BAD if health.status == 'BAD' else STATUS_GOOD,
+                                 context={'remote': remote_id, 'health': health.as_dict()})
+            self.vip.health.send_alert(f'remote/{remote_id}', alert)
+        except Exception as e:
+            _log.debug(f'Unable to report the health of remote {remote_id}: {e}')
 
     @RPC.export
     def add_node(self, node_topic: str, config: dict, update_schedule: bool = True) -> bool:

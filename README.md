@@ -217,11 +217,14 @@ Additional interfaces will be available in later RC releases.
 
 ## Command-line tools
 
-Installing the agent on the modular platform also installs a `vctl` plugin: `vctl driver get|set|revert|last|list`
+Installing the agent on the modular platform also installs a `vctl` plugin: `vctl driver get|set|revert|last|list|status|health|call`
 and the `node` and `interface` subcommands operate on the driver over its RPC interface. For example:
 
 ```shell
 vctl driver get devices/campus/building/device/point
+vctl driver health                      # every remote: polls, failures, last error, protocol counters
+vctl driver status devices/campus/building/device/point   # the point's last value, time, staleness, last error
+vctl driver call devices/campus/building/device read_device_information -k '{"read_code": 2}'
 ```
 
 The Monolithic platform's `vctl` has no plugin mechanism, so the same commands are provided there by a standalone

@@ -314,18 +314,23 @@ class EquipmentTree(TopicTree):
                 new_point = PointNode(config=point_config, tag=point_config.volttron_point_name,
                                       identifier='/'.join([nid, point_config.volttron_point_name]))
                 self.add_node(new_point, parent=nid)
-                new_register = remote.interface.create_register(point_config)
-                remote.interface.insert_register(new_register, nid)
-                remote.update_metadata(point_id)
+                try:
+                    remote.add_register(point_config, nid)      # register, transform and metadata in one place
+                except Exception as e:                           # one bad row never takes the device down
+                    _log.error(f'{nid}: point {point_id} is not configured: {e}')
+                    self.remove_node(point_id)
                 changes = True
             else:
                 if point_config != existing.config:
                     existing.config = point_config
-                    new_register = remote.interface.create_register(point_config)
-                    remote.interface.insert_register(new_register, nid)
-                    remote.update_metadata(point_id)
+                    try:
+                        remote.add_register(point_config, nid)
+                    except Exception as e:
+                        _log.error(f'{nid}: point {point_id} is not configured after its update: {e}')
+                        remote.remove_register(point_id)
+                        self.remove_node(point_id)
                     changes = True
-                existing_points.remove(point_id)
+                existing_points.discard(point_id)
         for removed in existing_points:
             for poll_scheduler in self.agent.poll_schedulers.values():
                 poll_scheduler.remove_from_schedule(self.get_node(removed), self)
@@ -367,7 +372,7 @@ class EquipmentTree(TopicTree):
         if node.is_device:
             node.stop_device()
         elif node.is_point:
-            self.get_remote(nid).interface.point_map.pop(nid)
+            self.get_remote(nid).remove_register(nid)
         if leave_disconnected and self.has_concrete_successors(nid):
             # TODO: This may leave behind points which have no Device. Replace Fake Driver Interface with static points?
             #  How do we handle static points like this? What setup is required for this?  Should we do this at all?
@@ -483,8 +488,8 @@ class EquipmentTree(TopicTree):
 
         A cyclically polled point (``SHORT_POLL``, ``LONG_POLL``) is expected every polling interval, so without a
         configured ``stale_timeout`` it goes stale after ``stale_timeout_multiplier`` intervals. Nothing else is
-        expected on a schedule: a ``STATIC`` value is never stale, and a ``POLL_ONCE``, ``NEVER_POLL`` or ``SERVER``
-        point is stale only once a configured ``stale_timeout`` has passed since its last update.
+        expected on a schedule: a ``STATIC`` value is never stale, and a ``POLL_ONCE``, ``NEVER_POLL``, ``SERVER`` or
+        ``VIRTUAL`` point is stale only once a configured ``stale_timeout`` has passed since its last update.
         """
         node = self.get_node(nid)
         if node.last_updated is None:

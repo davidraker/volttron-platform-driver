@@ -102,6 +102,15 @@ def driver_status(opts):
     return _require_driver(opts).call('status', topic=opts.topic, regex=opts.regex)
 
 
+def driver_health(opts):
+    return _require_driver(opts).call('health', topic=opts.topic, regex=opts.regex)
+
+
+def driver_call(opts):
+    kwargs = _parse_json_config(opts.kwargs) if opts.kwargs else {}
+    return _require_driver(opts).call('call', opts.method, topic=opts.topic, regex=opts.regex, **kwargs)
+
+
 def driver_node_add(opts):
     if not opts.config and opts.config_path:
         with open(opts.config_path) as f:
@@ -169,6 +178,15 @@ def build_driver_commands(subparsers, add_parser, print_results: bool):
     p.add_argument('-v', '--value', action=bool_opt, default=True, help='Return the value.')
     p.add_argument('-u', '--updated', action=bool_opt, default=True, help='Return the datetime of the last known value.')
     p.set_defaults(func=wrap(driver_last))
+    p = add_parser('health', help='Health of the remotes behind equipment: polls, failures, last error, protocol counters.')
+    p.add_argument('topic', nargs='?', default=None, help='Topic or pattern to select equipment (default: every remote).').completer = topic_completer
+    p.add_argument('-r', '--regex', default=None, help='Regular expression to select equipment.')
+    p.set_defaults(func=wrap(driver_health))
+    p = add_parser('call', help="Call an interface method on equipment's remote (e.g. a Modbus device's read_device_information).")
+    _selection(p)
+    p.add_argument('method', help='The interface method name.')
+    p.add_argument('-k', '--kwargs', default=None, help='Keyword arguments for the method, as a JSON object.')
+    p.set_defaults(func=wrap(driver_call))
     p = add_parser('revert', help='Reset any commands set on equipment.'); _selection(p)
     p.add_argument('-c', '--confirm-values', action='store_true', help='Query points after reversion to confirm values were reset.')
     p.set_defaults(func=wrap(driver_revert))
