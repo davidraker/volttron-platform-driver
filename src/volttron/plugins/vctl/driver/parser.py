@@ -10,9 +10,12 @@ vctl's own control connection with its peer switched to the driver; standalone, 
 from __future__ import annotations
 
 import argparse
+import json
 import logging
 import os
 import sys
+import time
+
 from pprint import pprint
 
 PEER = 'platform.driver'
@@ -69,8 +72,17 @@ def driver_get(opts):
     return _require_driver(opts).call('get', topic=opts.topic, regex=opts.regex)
 
 
+def _typed(text: str):
+    """The value a command-line argument denotes: JSON when it parses (``1``, ``2.5``, ``true``, ``null``, ``[1, 2]``,
+    ``{"a": 1}``, ``"quoted"``), otherwise the text itself. ``--map-points`` needs the object form."""
+    try:
+        return json.loads(text)
+    except (TypeError, ValueError):
+        return text
+
+
 def driver_set(opts):
-    return _require_driver(opts).call('set', value=opts.value, topic=opts.topic, regex=opts.regex,
+    return _require_driver(opts).call('set', value=_typed(opts.value), topic=opts.topic, regex=opts.regex,
                                       confirm_values=opts.confirm_values, map_points=opts.map_points)
 
 
@@ -103,7 +115,83 @@ def driver_status(opts):
 
 
 def driver_health(opts):
-    return _require_driver(opts).call('health', topic=opts.topic, regex=opts.regex)
+    report = _require_driver(opts).call('health', topic=opts.topic, regex=opts.regex)
+    if getattr(opts, 'json', False) or not isinstance(report, dict):
+        return report
+    return _HealthText(report)
+
+
+class _HealthText:
+    """A health report rendered for reading; pprint and print both show the text."""
+    SHOWN_ERRORS = 3
+
+    def __init__(self, report: dict):
+        self.report = report
+
+    def __repr__(self):
+        return '\n'.join(line for topic, record in self.report.items() for line in self._remote(topic, record))
+
+    __str__ = __repr__
+
+    @classmethod
+    def _remote(cls, topic: str, record: dict):
+        if not isinstance(record, dict):
+            yield f'{topic}: {record}'
+            return
+        yield f"{topic}  remote {record.get('remote', '?')}"
+        yield (f"  status {record.get('status')}   polls {record.get('polls', 0)} (failures {record.get('poll_failures', 0)},"
+               f" consecutive {record.get('consecutive_failures', 0)})   writes {record.get('writes', 0)}"
+               f" (failures {record.get('write_failures', 0)})")
+        duration = record.get('last_poll_duration')
+        yield (f"  last success {record.get('last_success') or '-'}   last failure {record.get('last_failure') or '-'}"
+               + (f"   last poll {duration:.3f} s" if isinstance(duration, (int, float)) else ''))
+        if record.get('last_error'):
+            yield f"  last error: {cls._short(record['last_error'], 160)}"
+        if record.get('last_write_error'):
+            yield f"  last write error: {cls._short(record['last_write_error'], 160)}"
+        errors = record.get('point_errors') or {}
+        if errors:
+            shown = [f"{t.rsplit('/', 1)[-1]}: {cls._short(m, 70)}" for t, m in list(errors.items())[:cls.SHOWN_ERRORS]]
+            more = f', +{len(errors) - cls.SHOWN_ERRORS} more' if len(errors) > cls.SHOWN_ERRORS else ''
+            yield f"  point errors ({len(errors)}): {'; '.join(shown)}{more}"
+        for event in record.get('events') or []:
+            yield f"  event {event.get('time')}  {event.get('event')}"
+        protocol = record.get('protocol')
+        if isinstance(protocol, dict):
+            yield from cls._protocol(protocol)
+        elif protocol is not None:
+            yield f'  protocol: {protocol}'
+        devices = record.get('devices') or []
+        if len(devices) > 1 or devices != [topic]:
+            yield f"  devices: {', '.join(devices)}"
+
+    @classmethod
+    def _protocol(cls, protocol: dict):
+        scalars = cls._scalars(protocol)
+        if scalars:
+            yield '  protocol: ' + ', '.join(f'{k} {v}' for k, v in scalars.items())
+        for key, value in protocol.items():
+            if isinstance(value, dict) and (scalars := cls._scalars(value)):
+                yield f'  {key}: ' + ', '.join(f'{k} {cls._short(v, 60)}' for k, v in scalars.items())
+            elif isinstance(value, list) and value:
+                yield f'  {key}: {value}'
+
+    @classmethod
+    def _scalars(cls, record: dict) -> dict:
+        """The record's scalar entries worth a line: no empty values; epoch times rendered as UTC timestamps."""
+        shown = {}
+        for key, value in record.items():
+            if isinstance(value, (dict, list)) or value in (None, '', {}, []):
+                continue
+            if isinstance(value, float) and key.startswith('last_') and value > 1e9:
+                value = time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime(value))
+            shown[key] = value
+        return shown
+
+    @staticmethod
+    def _short(text, width: int) -> str:
+        text = ' '.join(str(text).split())
+        return text if len(text) <= width else text[:width - 3] + '...'
 
 
 def driver_call(opts):
@@ -181,6 +269,7 @@ def build_driver_commands(subparsers, add_parser, print_results: bool):
     p = add_parser('health', help='Health of the remotes behind equipment: polls, failures, last error, protocol counters.')
     p.add_argument('topic', nargs='?', default=None, help='Topic or pattern to select equipment (default: every remote).').completer = topic_completer
     p.add_argument('-r', '--regex', default=None, help='Regular expression to select equipment.')
+    p.add_argument('--json', action='store_true', help='Print the full health record instead of the summary.')
     p.set_defaults(func=wrap(driver_health))
     p = add_parser('call', help="Call an interface method on equipment's remote (e.g. a Modbus device's read_device_information).")
     _selection(p)

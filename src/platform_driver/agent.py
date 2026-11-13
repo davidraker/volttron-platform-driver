@@ -387,6 +387,14 @@ class PlatformDriverAgent(Agent):
             validated_reg_configs = [PointConfig(**r) for r in registry_configs]
         is_changed = self.equipment_tree.update_equipment(config_name, dev_config, remote, validated_reg_configs)
         if is_changed:
+            if remote is not None:
+                # The interface contract: finalize_setup runs again after registers change, so an interface that
+                # declares its point table elsewhere (a protocol proxy) learns the new registers.
+                try:
+                    remote.interface.finalize_setup(initial_setup=False)
+                except BaseException as e:
+                    _log.warning(f'Exception occurred while finalizing the updated setup of {remote.unique_id}: {e}.')
+                    remote.health.note(f'setup after update failed: {e}')
             points = (self.equipment_tree.device_points(config_name) if dev_config
                       else self.equipment_tree.points(config_name))
             self._update_polling_schedules(points)

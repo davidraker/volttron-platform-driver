@@ -117,3 +117,29 @@ class TestHealth:
         health.record_poll({}, {})
         base_PDA.vip.health.set_status.assert_not_called()
         base_PDA.vip.health.send_alert.assert_called_once()
+
+
+class TestUpdateFinalizesSetup:
+    def test_a_registry_update_runs_finalize_setup_again(self, base_PDA):
+        """A proxy-backed interface declares its point table at finalize_setup, so an update must call it again."""
+        remote = mock.Mock(unique_id='r1')
+        remote.interface.prepare_registry_config.side_effect = lambda rows, cfg: rows
+        remote.interface.REGISTER_CONFIG_CLASS = PointConfig
+        remote.interface.LEGACY_COLUMN_HINTS = {}
+        base_PDA._get_or_create_remote = mock.Mock(return_value=remote)
+        base_PDA._update_polling_schedules = mock.Mock()
+        base_PDA.equipment_tree.update_equipment.return_value = True
+        base_PDA._update_equipment(DEVICE, 'UPDATE', {'driver_type': 'fake', 'driver_config': {},
+                                                      'registry_config': [{'Volttron Point Name': 'A'}]})
+        remote.interface.finalize_setup.assert_called_once_with(initial_setup=False)
+
+    def test_an_unchanged_update_does_not_finalize(self, base_PDA):
+        remote = mock.Mock(unique_id='r1')
+        remote.interface.prepare_registry_config.side_effect = lambda rows, cfg: rows
+        remote.interface.REGISTER_CONFIG_CLASS = PointConfig
+        remote.interface.LEGACY_COLUMN_HINTS = {}
+        base_PDA._get_or_create_remote = mock.Mock(return_value=remote)
+        base_PDA.equipment_tree.update_equipment.return_value = False
+        base_PDA._update_equipment(DEVICE, 'UPDATE', {'driver_type': 'fake', 'driver_config': {},
+                                                      'registry_config': [{'Volttron Point Name': 'A'}]})
+        remote.interface.finalize_setup.assert_not_called()
