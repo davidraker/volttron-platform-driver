@@ -55,6 +55,7 @@ class ServedStateStore:
         self.agent = agent
         self.flush_interval = flush_interval
         self.dirty: set[str] = set()
+        self.forgotten: set[str] = set()         # devices whose entries are deleted at the next flush
         self._flusher = None
 
     @classmethod
@@ -72,12 +73,34 @@ class ServedStateStore:
             _log.debug(f'Not recording {point.identifier}: {e}')
             return
         self.dirty.add(device_topic)
+        self._schedule_flush(self.flush_interval)
+
+    def _schedule_flush(self, delay: float):
         if self._flusher is None:
-            self._flusher = self.agent.core.spawn_later(self.flush_interval, self.flush)
+            self._flusher = self.agent.core.spawn_later(delay, self.flush)
 
     def flush(self) -> int:
-        """Write every dirty device's served values now. Returns the number of entries written."""
+        """Write every dirty device's served values now, and delete the entries of forgotten devices. Returns the number
+        of entries written. Runs from its own greenlet: the configuration store refuses changes made from inside a
+        configuration callback, which is where devices are configured and removed."""
         self._flusher = None
+        forgotten, self.forgotten = self.forgotten, set()
+        if forgotten:
+            try:
+                existing = set(self.agent.vip.config.list())
+            except Exception as e:
+                _log.warning(f'Unable to list the configuration store; saved served values are not deleted yet: {e}')
+                self.forgotten |= forgotten
+                existing = set()
+                forgotten = set()
+            for device_topic in sorted(forgotten):
+                if self.entry_name(device_topic) not in existing:      # nothing was ever saved: nothing to delete
+                    continue
+                try:
+                    self.agent.vip.config.delete(self.entry_name(device_topic), trigger_callback=False)
+                except Exception as e:
+                    _log.warning(f'Unable to delete the saved served values of {device_topic}: {e}')
+                    self.forgotten.add(device_topic)
         dirty, self.dirty = self.dirty, set()
         written = 0
         for device_topic in sorted(dirty):
@@ -126,11 +149,8 @@ class ServedStateStore:
         return loaded
 
     def forget(self, device_topic: str):
-        """Drop the device's entry (the device is being removed)."""
+        """Drop the device's entry (the device is being removed). The delete happens at the next flush, scheduled now,
+        because forget is called from the configuration callback that removes the device."""
         self.dirty.discard(device_topic)
-        try:
-            self.agent.vip.config.delete(self.entry_name(device_topic), trigger_callback=False)
-        except KeyError:
-            pass
-        except Exception as e:
-            _log.warning(f'Unable to delete the saved served values of {device_topic}: {e}')
+        self.forgotten.add(device_topic)
+        self._schedule_flush(0)

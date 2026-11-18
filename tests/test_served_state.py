@@ -29,6 +29,9 @@ class FakeConfigStore:
         self.calls.append(('delete', name, trigger_callback))
         del self.entries[name]
 
+    def list(self):
+        return list(self.entries)
+
 
 class FakeCore:
     def __init__(self):
@@ -104,9 +107,14 @@ def test_forget_deletes_the_entry_and_a_removed_device_is_not_flushed(agent):
     tree.record_pushed_value(ai)
     store.forget(DEVICE)                                                         # nothing stored yet: no error
     store.forget(DEVICE)
-    assert store.dirty == set()
+    assert store.dirty == set() and store.forgotten == {DEVICE}
+    agent.core.run_pending()                                                     # the delete runs off the callback
+    assert store.forgotten == set()
+    assert not [c for c in agent.vip.config.calls if c[0] == 'delete']          # no entry: the store is not asked
     agent.vip.config.entries[f'state/{DEVICE}'] = {'AI_2': 1}
     store.forget(DEVICE)
+    assert f'state/{DEVICE}' in agent.vip.config.entries                         # not yet: a callback may be running
+    agent.core.run_pending()
     assert f'state/{DEVICE}' not in agent.vip.config.entries
     tree.record_pushed_value(ai)
     tree.remove_segment(DEVICE)

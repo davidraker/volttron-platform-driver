@@ -378,7 +378,8 @@ class EquipmentTree(TopicTree):
             removed_node_count = 1
         else:
             for device in self.devices(nid):
-                device.stop_device()
+                if device is not node:                       # the node itself was stopped above
+                    device.stop_device()
             removed_node_count = self.remove_node(node.identifier) # Removes node and the subtree below.
         return removed_node_count
 
