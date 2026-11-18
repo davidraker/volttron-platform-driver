@@ -76,11 +76,13 @@ except PackageNotFoundError:
     from volttron.platform.jsonrpc import RemoteError
     from volttron.platform.scheduling import periodic
 
+from volttron.driver.base.config import DataSource
+
 from .config import PlatformDriverConfig
 from .constants import *
 from .equipment import DeviceNode, EquipmentNode, EquipmentTree, PointNode
 from .overrides import OverrideManager
-from .poll_scheduler import PollScheduler
+from .poll_scheduler import PollSet, PollSetRegistry, create_poll_schedulers
 from .served_state import ServedStateStore
 from .reservations import ReservationManager
 from .scalability_testing import ScalabilityTester
@@ -105,6 +107,8 @@ class PlatformDriverAgent(Agent):
         self.heartbeat_greenlet = None
         self.override_manager = None  # TODO: Should this initialize object here and call a load method on config?
         self.poll_schedulers = {}
+        self.poll_registry: PollSetRegistry | None = None
+        self._unscheduled_groups: dict[str, str] = {}    # group -> why its last schedule() failed (E6)
         self.publishers = {}
         self.reservation_manager = None  # TODO: Should this use a default reservation manager?
         self.scalability_test = None
@@ -220,11 +224,17 @@ class PlatformDriverAgent(Agent):
                 equipment_config = self.vip.config.get(c)
                 self._configure_new_equipment(c, 'NEW', equipment_config, schedule_now=False)
 
-        # Schedule Polling
-        self.poll_schedulers = PollScheduler.setup(self.equipment_tree, self.config.groups)
+        # Schedule Polling: a fresh registry over the (re)loaded tree replaces every pending poll.
+        for poll_scheduler in self.poll_schedulers.values():
+            poll_scheduler.cancel()
+        self.poll_registry = PollSetRegistry(self.equipment_tree)
+        groups = self.poll_registry.build()
+        self.poll_schedulers = create_poll_schedulers(self.equipment_tree, self.poll_registry, self.config.groups, groups,
+                                                      self.config.group_offset_interval)
         for group, poll_scheduler in self.poll_schedulers.items():
             self._schedule_group(group, poll_scheduler)
         self._poll_once(self.equipment_tree.points())
+        self._publish_static(self.equipment_tree.points())
 
         # Set up All Publishes:
         self._start_all_publishes()
@@ -385,6 +395,8 @@ class PlatformDriverAgent(Agent):
             validated_reg_configs = self._validate_rows(config_name, remote.interface, registry_configs)
         else:
             validated_reg_configs = [PointConfig(**r) for r in registry_configs]
+        before = {p.identifier for p in (self.equipment_tree.device_points(config_name) if dev_config
+                                         else self.equipment_tree.points(config_name))}
         is_changed = self.equipment_tree.update_equipment(config_name, dev_config, remote, validated_reg_configs)
         if is_changed:
             if remote is not None:
@@ -397,52 +409,109 @@ class PlatformDriverAgent(Agent):
                     remote.health.note(f'setup after update failed: {e}')
             points = (self.equipment_tree.device_points(config_name) if dev_config
                       else self.equipment_tree.points(config_name))
-            self._update_polling_schedules(points)
+            removed = before - {p.identifier for p in points}
+            self._update_polling_schedules(points, self._registry().remove_many(removed))
         return is_changed
+
+    def _registry(self) -> PollSetRegistry:
+        if self.poll_registry is None or self.poll_registry.data_model is not self.equipment_tree:
+            self.poll_registry = PollSetRegistry(self.equipment_tree)
+        return self.poll_registry
 
     def _poll_once(self, points):
         """Read the ``POLL_ONCE`` points among ``points`` now, each remote's in one request, off the caller's greenlet."""
-        for poll_set in PollScheduler.one_shot_poll_sets(self.equipment_tree, points):
+        for poll_set in self._registry().one_shot(points):
             _log.info(f'Polling {len(poll_set.points)} poll-once point(s) on {poll_set.remote.unique_id}.')
             self.core.spawn(poll_set.remote.poll_data, poll_set)
 
-    def _update_polling_schedules(self, points):
+    def _poll_now(self, points):
+        """Read the given scheduled points now (their first slot may be an interval away), one request per remote."""
+        by_remote: dict = {}
+        for point in points:
+            try:
+                remote = self.equipment_tree.get_remote(point.identifier)
+            except Exception:
+                continue
+            if remote is not None:
+                by_remote.setdefault(remote, PollSet(self.equipment_tree, remote)).add(point)
+        for remote, poll_set in by_remote.items():
+            _log.info(f'Polling {len(poll_set.points)} newly scheduled point(s) on {remote.unique_id} now.')
+            self.core.spawn(remote.poll_data, poll_set)
+
+    def _publish_static(self, points):
+        """Publish the STATIC points among ``points`` once: they are never polled, so configuration is their moment."""
+        by_remote: dict = {}
+        for point in points:
+            if point.data_source is not DataSource.STATIC:
+                continue
+            try:
+                remote = self.equipment_tree.get_remote(point.identifier)
+            except Exception:
+                continue
+            if remote is not None and hasattr(remote, 'publish_static'):
+                by_remote.setdefault(remote, []).append(point)
+        for remote, static_points in by_remote.items():
+            try:
+                remote.publish_static(static_points)
+            except Exception as e:
+                _log.warning(f'Static points of {remote.unique_id} were not published: {e}')
+
+    def _update_polling_schedules(self, points, groups: set[str] | None = None):
+        """Points were added or changed: one-shot and static publication for them, the registry re-placed, and every
+        group whose structure changed re-planned (plus ``groups`` the caller already knows need it)."""
         points = list(points)
         self._poll_once(points)
-        reschedules_required, new_groups = [], []
-        for point in points:
-            group = self.equipment_tree.get_group(point.identifier)
-            if group not in self.poll_schedulers:
-                new_groups.append(group)
-            if PollScheduler.add_to_schedule(point, self.equipment_tree):
-                reschedules_required.append(group)
-        if new_groups:
-            self.poll_schedulers.update(PollScheduler.create_poll_schedulers(self.equipment_tree, self.config.groups,
-                                                                             new_groups, len(self.poll_schedulers)))
-        for updated_group in reschedules_required:
-            self._schedule_group(updated_group, self.poll_schedulers[updated_group])
+        self._publish_static(points)
+        changed, newly_scheduled = self._registry().update_many(points)
+        self._reschedule(changed | (groups or set()))
+        if newly_scheduled and self.config.poll_new_points_immediately:
+            self._poll_now(newly_scheduled)
 
-    @staticmethod
-    def _schedule_group(group: str, poll_scheduler) -> bool:
-        """Schedule one polling group's polls; a failure is logged and leaves the other groups' scheduling to proceed."""
+    def _reschedule(self, groups):
+        """Re-plan the given groups, creating schedulers for groups seen for the first time."""
+        groups = set(groups)
+        new_groups = [g for g in groups if g not in self.poll_schedulers]
+        if new_groups:
+            self.poll_schedulers.update(create_poll_schedulers(self.equipment_tree, self._registry(), self.config.groups,
+                                                               new_groups, self.config.group_offset_interval,
+                                                               len(self.poll_schedulers)))
+        for group in sorted(groups):
+            self._schedule_group(group, self.poll_schedulers[group])
+
+    def _schedule_group(self, group: str, poll_scheduler) -> bool:
+        """Schedule one polling group's polls. A failure is logged, leaves the other groups to proceed, and is shown in
+        the agent's health status until the group schedules again."""
         try:
             poll_scheduler.schedule()
-            return True
+            self._unscheduled_groups.pop(group, None)
+            ok = True
         except Exception as e:
             _log.error(f'Polling group {group!r} could not be scheduled; its points will not be polled: {e!r}', exc_info=True)
-            return False
+            self._unscheduled_groups[group] = repr(e)
+            ok = False
+        self._report_scheduling_health()
+        return ok
+
+    def _report_scheduling_health(self):
+        try:
+            if self._unscheduled_groups:
+                self.vip.health.set_status(STATUS_BAD, {'unscheduled_groups': dict(self._unscheduled_groups)})
+                return
+            current = self.vip.health.get_status()
+            context = current.get('context') if isinstance(current, dict) else getattr(current, 'context', None)
+            if isinstance(context, dict) and 'unscheduled_groups' in context:
+                self.vip.health.set_status(STATUS_GOOD, 'All polling groups are scheduled.')
+        except Exception as e:
+            _log.debug(f'Unable to report the scheduling health: {e}')
 
     def _remove_equipment(self, config_name: str, _, __, leave_disconnected=False) -> bool:
         """Callback to remove equipment configuration."""
-        poll_schedulers = []
-        for point in self.equipment_tree.points(config_name):
-            group = self.equipment_tree.get_group(point.identifier)
-            poll_schedulers.append(self.poll_schedulers.get(group))
+        groups = self._registry().remove_many(list(self.equipment_tree.points(config_name)))
         node = self.equipment_tree.get_node(config_name)
         if node is not None and getattr(node, 'is_device', False):
             self.served_state.forget(config_name)
         removed_count = self.equipment_tree.remove_segment(config_name, leave_disconnected)
-        # TODO: Add reschedule_all_on_update option and reschedule all poll_schedulers when true.
+        self._reschedule(groups)
         return True if removed_count > 0 else False
 
     def _start_all_publishes(self):
@@ -452,7 +521,8 @@ class PlatformDriverAgent(Agent):
                     (self.equipment_tree.is_published_all_depth(device.identifier) or
                      self.equipment_tree.is_published_all_breadth(device.identifier))):
                 # Schedule first publish at end of first polling cycle to guarantee all points should have data.
-                start_all_datatime = max(poller.start_all_datetime for poller in self.poll_schedulers.values())
+                start_all_datatime = max((poller.start_all_datetime for poller in self.poll_schedulers.values()),
+                                         default=get_aware_utc_now())
                 self.publishers[device] = self.core.schedule(
                     periodic(device.all_publish_interval, start=start_all_datatime), self._all_publish, device
                 )
@@ -689,16 +759,11 @@ class PlatformDriverAgent(Agent):
         self._start(points)
 
     def _start(self, points: Iterable[PointNode]) -> None:
-        updates_required = []
-        for p in points:
-            if self.equipment_tree.is_active(p.identifier):
-                continue
-            else:
-                p.active = True
-                updates_required.append(p)
-    # TODO: Add reschedule_all_on_update option and reschedule all poll_schedulers when true.
-        if updates_required:
-            self._update_polling_schedules(updates_required)
+        started = [p for p in points if not self.equipment_tree.is_active(p.identifier)]
+        for p in started:
+            p.active = True
+        if started:
+            self._update_polling_schedules(started)
 
     @RPC.export
     def stop(self, topic: str | Sequence[str] | Set[str] = None, regex: str = None) -> None:
@@ -712,13 +777,11 @@ class PlatformDriverAgent(Agent):
         self._stop(points)
 
     def _stop(self, points: Iterable[PointNode]) -> None:
-        for p in points:
-            if not self.equipment_tree.is_active(p.identifier):
-                continue
-            else:
-                p.active = False
-                PollScheduler.remove_from_schedule(p, self.equipment_tree)
-        # TODO: Add reschedule_all_on_update option and reschedule all poll_schedulers when true.
+        stopped = [p for p in points if self.equipment_tree.is_active(p.identifier)]
+        for p in stopped:
+            p.active = False
+        if stopped:
+            self._reschedule(self._registry().remove_many(stopped))
 
     @RPC.export
     def enable(self, topic: str | Sequence[str] | Set[str] = None, regex: str = None) -> None:

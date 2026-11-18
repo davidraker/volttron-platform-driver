@@ -257,21 +257,23 @@ compatability and will work the same as the name in the key of this dictionary.
     # Groups should be configured here (each as its own dict). 
     #   The key will be used to identify the group in device configurations.
     #   Groups may have any name (not just integers as in the old driver).,
-    # NOTE -- Additional named groups will default to "parallel_subgroups" = false,
-    #   and "minimum_polling_interval" = 1.0 if these are not specified.
+    # NOTE -- A group that a device names but this dictionary does not define is taken to be a shared medium
+    #   (a serial bus, a slow gateway): "parallel_subgroups" false and "minimum_polling_interval" 0.1, with a
+    #   warning in the log naming the group. See "Polling groups" below.
     "default":{  # The default group for devices that do not specify one is "default".
-      "minimum_polling_interval":0.02,  # The shortest time allowed between polls (in seconds).
+      "minimum_polling_interval":0.02,  # Seconds between the polls of different remotes; also the unit intervals are quantised to.
       "start_offset_seconds":0.0,  # The first poll of the group will be delayed this many seconds.
-      "poll_scheduler_class_name":"StaticCyclicPollScheduler",  # Allows specification of a different PollScehduler class. (overrides the agent config for this group.)
+      "poll_scheduler_class_name":"StaticCyclicPollScheduler",  # StaticCyclicPollScheduler or SerialPollScheduler (overrides the agent config for this group.)
       "poll_scheduler_module":"platform_driver.poll_scheduler",  # Module for a specified poll scheduler class.
-      "poll_scheduler_configs":null,  # Future use. Allows configurations to be passed to a Poll Scheduler.
+      "poll_scheduler_configs":null,  # Options of the scheduler class, e.g. {"poll_timeout": 10} for the SerialPollScheduler.
       "parallel_subgroups":true  # Whether remotes within the group will be polled concurrently.
     }
   },
-  "group_offset_interval":0.0,  # The default used for groups that do not spefify an offset interval.
+  "group_offset_interval":0.0,  # Groups this dictionary does not define start group_offset_interval * their index later.
   "max_concurrent_publishes":10000,  # The most publishes allowed at once.
   "max_open_sockets":null,  # The largest allowed number of sockets which may be opened.
   "minimum_polling_interval":0.02,  # (alias='driver_scrape_interval') The shortest time allowed between polls (in seconds).
+  "poll_new_points_immediately":true,  # Read newly configured or started points at once instead of at their first slot.
   "poll_scheduler_class_name":"StaticCyclicPollScheduler",  # Allows specification of a different PollScehduler class.
   "poll_scheduler_configs":null,  # Future use. Allows configurations to be passed to a Poll Scheduler.
   "poll_scheduler_module":"platform_driver.poll_scheduler",  # Module for a specified poll scheduler class.
@@ -290,6 +292,34 @@ compatability and will work the same as the name in the key of this dictionary.
   "timezone":"UTC",  # The timezone to use in pulbish meta-data.
 }
 ```
+
+## Polling groups
+
+Every point belongs to a polling group (`group` on the device or point, `default` otherwise). A group is scheduled on
+its own, with the settings of its entry under `groups`:
+
+* **`StaticCyclicPollScheduler`** (the default class) lays the group's polls out once into the slots of a hyperperiod,
+  anchored to midnight, and walks them from a chain of scheduled callbacks. With `parallel_subgroups` true each remote
+  has a chain of its own, offset `minimum_polling_interval` from the others, so independent devices (TCP) are polled
+  together. With `parallel_subgroups` false the remotes of an interval are spread across it, at least
+  `minimum_polling_interval` apart; when they do not fit, the planner warns and spaces them evenly instead.
+* **`SerialPollScheduler`** polls the group's remotes strictly one at a time: the next poll starts when the previous
+  answers (or its `poll_timeout`, under `poll_scheduler_configs`, passes). Each (remote, interval) keeps its own turn, so
+  a fast remote is never held for a slow one beyond its place in the queue, and a remote that cannot keep up skips
+  periods with a warning rather than piling them up. Use it for a bus that is genuinely slower than its schedule.
+
+Intervals are configured in seconds (fractions allowed) and scheduled in whole milliseconds. Within a group every
+interval is quantised to a multiple of `minimum_polling_interval`; an interval that is not one (1.25 s with a 0.1 s
+minimum) is rounded and a warning names the group's `minimum_polling_interval` as the setting to adjust. A group that a
+device names but `groups` does not define is treated as a shared medium (sequential, 0.1 s minimum, started
+`group_offset_interval` times its index after the cycle boundary), with a warning naming the group and a sample point;
+add a `groups` entry to choose otherwise.
+
+A change to the configuration takes effect at the next slot: adding, changing or removing points re-plans only the
+groups whose structure changed, pending polls see membership changes at once, and with `poll_new_points_immediately`
+(default true) newly scheduled points are read right away. `poll_once` points are read when their device is configured;
+`static` points are published when their device is configured and whenever they are written, and never polled. A group
+that cannot be scheduled is reported in the agent's health status (`unscheduled_groups`) until it schedules again.
 
 ## Securing device writes
 

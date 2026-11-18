@@ -24,21 +24,49 @@
 
 import logging
 from datetime import timedelta
-from pydantic import BaseModel, computed_field, ConfigDict, Field, model_validator
+from pydantic import BaseModel, computed_field, ConfigDict, Field, field_validator, model_validator
 from typing import Annotated
 
 from volttron.driver.base.config import empty_str_is
 
 _log = logging.getLogger()
 
+def _whole_milliseconds(seconds: float, name: str) -> float:
+    """Durations are configured in seconds and scheduled in whole milliseconds; anything finer is rounded, with a
+    warning."""
+    ms = int(float(seconds) * 1000 + 0.5) if seconds >= 0 else -int(-float(seconds) * 1000 + 0.5)   # halves round up
+    if abs(float(seconds) * 1000 - ms) > 1e-6:
+        _log.warning(f'{name} {seconds!r} s is not a whole number of milliseconds; using {ms / 1000:g} s.')
+    return ms / 1000
+
+
 class GroupConfig(BaseModel):
+    """How one polling group is scheduled. A group that a device names but this configuration does not define gets
+    these defaults: a shared medium, polled one remote after another at least 0.1 s apart."""
     model_config = ConfigDict(validate_assignment=True, populate_by_name=True)
-    minimum_polling_interval: float = 1.0
+    minimum_polling_interval: float = 0.1       # seconds; also the unit intervals are quantised to in this group
     start_offset_seconds: float = Field(default=0.0, alias='start_offset')
     poll_scheduler_class_name: str = 'StaticCyclicPollScheduler'
     poll_scheduler_module: str = 'platform_driver.poll_scheduler'
-    poll_scheduler_configs: BaseModel | None = None
-    parallel_subgroups: bool = False
+    poll_scheduler_configs: dict | None = None   # options of the scheduler class (the serial scheduler's poll_timeout ...)
+    parallel_subgroups: bool = False            # True: remotes polled concurrently on chains of their own (independent devices)
+
+    @field_validator('minimum_polling_interval', 'start_offset_seconds', mode='before')
+    @classmethod
+    def _round_to_milliseconds(cls, v, info):
+        if isinstance(v, timedelta):
+            v = v.total_seconds()
+        if v is None or v == '':
+            return v
+        v = _whole_milliseconds(v, info.field_name)
+        if info.field_name == 'minimum_polling_interval' and v < 0.001:
+            _log.warning(f'minimum_polling_interval cannot be below one millisecond; using 0.001 s.')
+            v = 0.001
+        return v
+
+    @property
+    def minimum_polling_interval_ms(self) -> int:
+        return round(self.minimum_polling_interval * 1000)
 
     @property
     def start_offset(self) -> timedelta:
@@ -47,6 +75,10 @@ class GroupConfig(BaseModel):
     @start_offset.setter
     def start_offset(self, v):
         self.start_offset_seconds = v.total_seconds() if isinstance(v, timedelta) else v
+
+    @property
+    def start_offset_ms(self) -> int:
+        return round(self.start_offset_seconds * 1000)
 
 
 class PlatformDriverConfig(BaseModel):
@@ -65,6 +97,7 @@ class PlatformDriverConfig(BaseModel):
     max_concurrent_publishes: int = 10000
     max_open_sockets: int | None = None
     minimum_polling_interval: float = Field(default=0.02, alias='driver_scrape_interval')
+    poll_new_points_immediately: bool = True   # read newly scheduled points at once instead of at their first slot
     poll_scheduler_class_name: str = 'StaticCyclicPollScheduler'
     poll_scheduler_configs: BaseModel | None = None
     poll_scheduler_module: str = 'platform_driver.poll_scheduler'
@@ -95,6 +128,11 @@ class PlatformDriverConfig(BaseModel):
     def reservation_required_for_write(self) -> bool:
         # Require reservation if either reservation_required_for write is True or allow_no_lock_writes is False:
         return True if self.reservation_required_for_write_configured or not self.allow_no_lock_write else False
+
+    @field_validator('default_polling_interval', 'minimum_polling_interval', 'group_offset_interval', mode='before')
+    @classmethod
+    def _round_to_milliseconds(cls, v, info):
+        return v if v is None or v == '' else _whole_milliseconds(v, info.field_name)
 
     @model_validator(mode='after')
     def _set_default_group(self):

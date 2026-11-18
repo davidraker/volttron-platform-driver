@@ -331,9 +331,7 @@ class EquipmentTree(TopicTree):
                         self.remove_node(point_id)
                     changes = True
                 existing_points.discard(point_id)
-        for removed in existing_points:
-            for poll_scheduler in self.agent.poll_schedulers.values():
-                poll_scheduler.remove_from_schedule(self.get_node(removed), self)
+        for removed in existing_points:                  # the agent unschedules what left (it compares before and after)
             self.remove_segment(removed)
             changes = True
         return changes
