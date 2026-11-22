@@ -269,7 +269,9 @@ def build_driver_commands(subparsers, add_parser, print_results: bool):
     p = add_parser('health', help='Health of the remotes behind equipment: polls, failures, last error, protocol counters.')
     p.add_argument('topic', nargs='?', default=None, help='Topic or pattern to select equipment (default: every remote).').completer = topic_completer
     p.add_argument('-r', '--regex', default=None, help='Regular expression to select equipment.')
-    p.add_argument('--json', action='store_true', help='Print the full health record instead of the summary.')
+    # No default, so "vctl --json driver health" keeps vctl's top-level --json (volttron-core#374).
+    p.add_argument('--json', action='store_true', default=argparse.SUPPRESS,
+                   help='Print the full health record instead of the summary.')
     p.set_defaults(func=wrap(driver_health))
     p = add_parser('call', help="Call an interface method on equipment's remote (e.g. a Modbus device's read_device_information).")
     _selection(p)

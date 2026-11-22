@@ -30,3 +30,23 @@ def test_health_text_summarises_point_errors_and_protocol():
     assert 'protocol: protocol modbus, transport tcp, unit_id 1, connected False' in text
     assert 'unit: requests 575, failures 2, last_success 2026-11-13T00:48:32Z' in text and 'last_error' not in text.split('unit:')[1]
     assert 'refused_single_writes' not in text and len(lines) < 12
+
+
+import argparse
+
+import pytest
+
+
+@pytest.mark.parametrize("args", [["--json", "driver", "health"], ["driver", "health", "--json"]])
+def test_health_json_on_either_side_of_the_command(args):
+    """vctl's --json is top-level; health's own --json has no default, so a value given before the command survives
+    under plain argparse, which copies a command's defaults over the top-level values (volttron-core#374)."""
+    from volttron.plugins.vctl.driver.parser import build_driver_commands
+
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--json", action="store_true", default=False)
+    driver = parser.add_subparsers(dest="command").add_parser("driver")
+    subs = driver.add_subparsers(dest="driver_command", required=True)
+    build_driver_commands(subs, lambda name, **kw: subs.add_parser(name, **kw), print_results=True)
+    assert parser.parse_args(args).json is True
+    assert parser.parse_args(["driver", "health"]).json is False
